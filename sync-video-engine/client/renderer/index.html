@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Sync Engine</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-content">
+        <h1 class="app-title">Video Sync Engine</h1>
+        <div class="connection-status">
+          <div class="status-indicator" id="syncStatus"></div>
+          <span id="syncStatusText">Disconnected</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Sync Panel -->
+      <section class="sync-panel">
+        <h2>Sync Settings</h2>
+        
+        <div class="form-group">
+          <label for="serverUrl">Server URL</label>
+          <input type="text" id="serverUrl" placeholder="ws://localhost:3000" />
+        </div>
+
+        <div class="form-group">
+          <label for="userName">Your Name</label>
+          <input type="text" id="userName" placeholder="Enter your name" />
+        </div>
+
+        <div class="form-group">
+          <label for="channelId">Channel ID</label>
+          <input type="text" id="channelId" placeholder="Enter channel ID" />
+        </div>
+
+        <div class="button-group">
+          <button id="connectBtn" class="btn btn-primary">Connect</button>
+          <button id="joinChannelBtn" class="btn btn-secondary" disabled>Join Channel</button>
+        </div>
+
+        <!-- Channel Info -->
+        <div class="channel-info" id="channelInfo" style="display: none;">
+          <h3>Channel Info</h3>
+          <div class="info-item">
+            <span class="label">Channel:</span>
+            <span id="currentChannel"></span>
+          </div>
+          <div class="info-item">
+            <span class="label">Role:</span>
+            <span id="userRole" class="role-badge"></span>
+          </div>
+          <div class="users-list">
+            <h4>Connected Users (<span id="userCount">0</span>/5)</h4>
+            <ul id="usersList"></ul>
+          </div>
+          <button id="leaveChannelBtn" class="btn btn-danger">Leave Channel</button>
+        </div>
+      </section>
+
+      <!-- Video Control Panel -->
+      <section class="video-panel">
+        <h2>Video Player</h2>
+        
+        <div class="video-info">
+          <div class="video-status">
+            <div class="status-item">
+              <span class="label">VLC Status:</span>
+              <span id="vlcStatus" class="status-text">Not Connected</span>
+            </div>
+            <div class="status-item">
+              <span class="label">Current Video:</span>
+              <span id="currentVideo" class="video-name">No video loaded</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="video-controls">
+          <div class="playback-controls">
+            <button id="playBtn" class="control-btn" disabled>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            </button>
+            <button id="pauseBtn" class="control-btn" disabled>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="progress-section">
+            <div class="time-display">
+              <span id="currentTime">00:00</span>
+              <span>/</span>
+              <span id="totalTime">00:00</span>
+            </div>
+            <div class="progress-bar">
+              <input type="range" id="seekBar" min="0" max="100" value="0" disabled />
+            </div>
+          </div>
+
+          <div class="volume-control">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            </svg>
+            <input type="range" id="volumeSlider" min="0" max="100" value="100" />
+          </div>
+        </div>
+
+        <div class="file-controls">
+          <button id="openVideoBtn" class="btn btn-primary">Open Video File</button>
+          <button id="startVLCBtn" class="btn btn-secondary">Start VLC</button>
+        </div>
+
+        <div class="sync-indicator" id="syncIndicator" style="display: none;">
+          <div class="sync-status">
+            <span class="sync-icon">🔄</span>
+            <span>Syncing...</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Status Bar -->
+    <footer class="status-bar">
+      <div class="status-item">
+        <span id="ntpOffset">NTP Offset: -- ms</span>
+      </div>
+      <div class="status-item">
+        <span id="syncAccuracy">Sync Accuracy: -- ms</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Notification Container -->
+  <div id="notificationContainer" class="notification-container"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
