@@ -1,0 +1,206 @@
+# Video Sync Engine - Technical Planning Document
+
+## Project Overview
+Build a real-time video synchronization engine for 5 users across different continents to watch local video files in perfect sync. One user acts as the "controller" who can seek/pause/play, and all others follow automatically.
+
+## Core Requirements
+
+### Functional Requirements
+- **Multi-user sync**: Support exactly 5 concurrent users in a channel
+- **Real-time synchronization**: Sub-second latency for play/pause/seek commands
+- **Cross-continental support**: Handle users across different continents with varying network latency
+- **Local video playback**: Each user plays their own local copy of the same video file
+- **Single controller model**: One designated user can control playback, others are viewers
+- **Automatic sync correction**: Detect and correct drift between players
+
+### Technical Constraints
+- **Platform**: macOS only (all users)
+- **Group size**: Fixed 5 users maximum
+- **Network**: Assume decent broadband but varying latency (50-300ms between continents)
+- **Video source**: Local files on each machine (same video, different locations)
+
+## Architecture Design
+
+### 1. Time Synchronization Layer
+**Use Google NTP for global time reference**
+- Implement NTP client to sync with `time.google.com`
+- Calculate local time offset from NTP time
+- Use NTP timestamp as universal reference for all sync commands
+- Handle timezone differences automatically
+
+### 2. Communication Layer
+**WebRTC + WebSocket Hybrid**
+- **WebSocket**: Primary channel for sync commands (reliable delivery)
+- **WebRTC**: Backup/fallback for P2P communication
+- **Message types**:
+  - `SYNC_STATE`: Current playback position + NTP timestamp
+  - `PLAY_COMMAND`: Play at specific NTP time + position
+  - `PAUSE_COMMAND`: Pause at specific NTP time
+  - `SEEK_COMMAND`: Jump to position at specific NTP time
+  - `HEARTBEAT`: Regular sync health check
+
+### 3. Video Player Integration Options
+
+**Option A: VLC Integration (Recommended)**
+- Use VLC's HTTP interface/Lua scripting
+- Control VLC remotely via localhost HTTP API
+- Pros: Robust video playback, handles all formats
+- Cons: Requires VLC configuration, external dependency
+
+**Option B: Web Browser Player**
+- HTML5 video player in Electron/web app
+- Direct JavaScript control over video element
+- Pros: Easy to control, cross-platform
+- Cons: Limited codec support, file access restrictions
+
+**Option C: Native Media Player Bridge**
+- Control macOS's native video player via AppleScript
+- Pros: Native integration, reliable
+- Cons: macOS specific, limited control precision
+
+**Recommendation**: Start with VLC integration for maximum compatibility and control precision.
+
+## Implementation Strategy
+
+### Phase 1: Core Sync Engine (Week 1)
+1. **NTP Time Sync Module**
+   ```
+   - Implement NTP client
+   - Calculate and maintain time offset
+   - Provide getNTPTime() function
+   ```
+
+2. **WebSocket Server**
+   ```
+   - Simple Node.js/Python server
+   - Handle 5 concurrent connections
+   - Broadcast sync commands to all clients
+   - Maintain channel state
+   ```
+
+3. **Basic Client Application**
+   ```
+   - Connect to sync server
+   - Send/receive sync messages
+   - Basic UI for testing
+   ```
+
+### Phase 2: Video Player Integration (Week 2)
+1. **VLC HTTP Interface Setup**
+   ```
+   - Configure VLC for HTTP control
+   - Test basic play/pause/seek commands
+   - Implement video position polling
+   ```
+
+2. **Sync Logic Implementation**
+   ```
+   - Convert NTP timestamps to video positions
+   - Handle play/pause/seek synchronization
+   - Implement drift correction algorithm
+   ```
+
+### Phase 3: User Interface & Testing (Week 3)
+1. **Simple Desktop App**
+   ```
+   - Channel join/create interface
+   - Video file selection
+   - Controller assignment
+   - Sync status display
+   ```
+
+2. **Testing & Optimization**
+   ```
+   - Test with simulated network latency
+   - Fine-tune sync algorithms
+   - Handle edge cases
+   ```
+
+## Technical Specifications
+
+### Server Component
+- **Technology**: Node.js with Socket.io or Python with websockets
+- **Hosting**: Simple cloud VPS (DigitalOcean/AWS)
+- **Database**: None required (in-memory state)
+- **Scaling**: Single instance (5 users max)
+
+### Client Application
+- **Technology**: Electron app or Python with Tkinter
+- **VLC Integration**: HTTP interface on localhost:8080
+- **Config**: JSON file for server address, user preferences
+
+### Network Protocol
+```javascript
+// Message format example
+{
+  "type": "SYNC_STATE",
+  "timestamp": 1640995200.123,  // NTP timestamp
+  "position": 125.45,           // Video position in seconds
+  "playing": true,              // Playback state
+  "user_id": "user123",
+  "channel_id": "room456"
+}
+```
+
+### Sync Algorithm
+1. **Drift Detection**: Compare local position with broadcast position every 1 second
+2. **Correction Threshold**: Sync if drift > 0.5 seconds
+3. **Smooth Correction**: Gradually adjust playback speed (0.95x to 1.05x) for minor drift
+4. **Hard Sync**: Jump to position for major drift (>2 seconds)
+
+## Delivery Checklist
+
+### Minimum Viable Product
+- [ ] NTP time synchronization working
+- [ ] 5-user WebSocket server
+- [ ] VLC integration with basic controls
+- [ ] Simple join channel interface
+- [ ] Basic play/pause/seek sync
+- [ ] One designated controller model
+
+### Testing Requirements
+- [ ] Test with 5 users across different networks
+- [ ] Verify sync accuracy within 1 second
+- [ ] Handle network disconnection gracefully
+- [ ] Test with various video formats/lengths
+
+### Documentation Deliverables
+- [ ] Setup instructions for VLC configuration
+- [ ] User guide for joining channels
+- [ ] Server deployment guide
+- [ ] Troubleshooting common issues
+
+## File Structure
+```
+sync-video-engine/
+├── server/
+│   ├── app.js (WebSocket server)
+│   ├── ntp-sync.js
+│   └── package.json
+├── client/
+│   ├── main.js (Electron main process)
+│   ├── renderer/ (UI components)
+│   ├── vlc-controller.js
+│   └── sync-client.js
+├── docs/
+│   ├── setup-guide.md
+│   └── user-manual.md
+└── README.md
+```
+
+## Success Metrics
+- **Sync accuracy**: <1 second drift between all clients
+- **Latency**: Commands execute within 2 seconds globally
+- **Reliability**: 99% uptime during 2-hour viewing sessions
+- **Usability**: One-click join and sync for end users
+
+## Next Steps for Implementation
+1. Set up development environment
+2. Implement NTP sync module first (foundation)
+3. Create basic WebSocket server and test with multiple connections
+4. Integrate VLC control and test locally
+5. Deploy and test with distributed users
+6. Iterate based on real-world testing feedback
+
+---
+**Note**: This plan prioritizes simplicity and speed of development. Advanced features like automatic video file verification, user authentication, or mobile support are deliberately excluded to meet the "simple as possible and quickly" requirement.
