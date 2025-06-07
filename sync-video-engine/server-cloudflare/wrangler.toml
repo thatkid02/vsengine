@@ -1,0 +1,27 @@
+name = "video-sync-engine"
+main = "src/index.js"
+compatibility_date = "2023-12-01"
+
+# Durable Objects binding for WebSocket rooms
+[[durable_objects.bindings]]
+name = "SYNC_CHANNELS"
+class_name = "SyncChannel"
+
+# Migrations for Durable Objects
+[[migrations]]
+tag = "v1"
+new_classes = ["SyncChannel"]
+
+# Environment variables (add your own if needed)
+[vars]
+MAX_USERS_PER_CHANNEL = "5"
+
+# Development settings
+[dev]
+port = 3000
+
+# Production route
+route = { pattern = "sync.yourdomain.com/*", zone_name = "yourdomain.com" }
+
+# Or use workers.dev subdomain for testing
+# workers_dev = true

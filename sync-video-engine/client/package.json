@@ -1,13 +1,17 @@
 {
-  "name": "sync-video-engine-client",
+  "name": "video-sync-engine",
   "version": "1.0.0",
-  "description": "Desktop client for video synchronization",
+  "description": "Real-time video synchronization for watching together",
   "main": "main.js",
+  "author": "Video Sync Engine Team",
+  "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build": "electron-builder",
-    "dist": "electron-builder --mac"
+    "build": "electron-builder build",
+    "dist": "electron-builder build --mac",
+    "dist-all": "electron-builder build -mwl",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "axios": "^1.5.0",
@@ -17,16 +21,88 @@
   },
   "devDependencies": {
     "electron": "^27.0.0",
-    "electron-builder": "^24.6.4"
+    "electron-builder": "^24.6.4",
+    "electron-notarize": "^1.2.2"
   },
   "build": {
-    "appId": "com.vsengine.syncclient",
+    "appId": "com.videosync.engine",
     "productName": "Video Sync Engine",
+    "copyright": "Copyright © 2024 Video Sync Engine",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build-resources"
     },
+    "files": [
+      "**/*",
+      "!**/*.ts",
+      "!*.map",
+      "!package-lock.json",
+      "!dist"
+    ],
     "mac": {
-      "category": "public.app-category.video"
-    }
+      "category": "public.app-category.video",
+      "icon": "assets/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ]
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "background": "assets/dmg-background.png",
+      "icon": "assets/icon.icns",
+      "iconSize": 80,
+      "title": "Install Video Sync Engine"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "license": "assets/license.txt"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png",
+      "category": "Video"
+    },
+    "afterSign": "scripts/notarize.js",
+    "protocols": [
+      {
+        "name": "Video Sync Engine",
+        "schemes": ["videosync"]
+      }
+    ]
   }
 }

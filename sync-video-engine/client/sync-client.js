@@ -16,15 +16,28 @@ class SyncClient extends EventEmitter {
     this.ntpOffset = 0;
     this.reconnectInterval = null;
     this.heartbeatInterval = null;
+    this.isCloudflare = false;
   }
 
   /**
    * Connect to sync server
    */
-  async connect() {
+  async connect(channelId = null) {
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(this.serverUrl);
+        // Check if this is a Cloudflare Workers URL
+        this.isCloudflare = this.serverUrl.includes('workers.dev') || 
+                           this.serverUrl.includes('cloudflare');
+        
+        // For Cloudflare, append channel as query parameter
+        let wsUrl = this.serverUrl;
+        if (this.isCloudflare && channelId) {
+          const url = new URL(this.serverUrl);
+          url.searchParams.set('channel', channelId);
+          wsUrl = url.toString();
+        }
+        
+        this.ws = new WebSocket(wsUrl);
 
         this.ws.on('open', () => {
           console.log('Connected to sync server');
@@ -80,9 +93,15 @@ class SyncClient extends EventEmitter {
   /**
    * Join a sync channel
    */
-  joinChannel(channelId, userId, userName) {
+  async joinChannel(channelId, userId, userName) {
     if (!this.connected) {
-      throw new Error('Not connected to server');
+      // For Cloudflare, we need to reconnect with the channel parameter
+      if (this.isCloudflare) {
+        await this.disconnect();
+        await this.connect(channelId);
+      } else {
+        throw new Error('Not connected to server');
+      }
     }
 
     this.userId = userId || uuidv4();
@@ -311,7 +330,7 @@ class SyncClient extends EventEmitter {
       if (!this.connected) {
         console.log('Attempting to reconnect...');
         try {
-          await this.connect();
+          await this.connect(this.channelId);
           
           // Rejoin channel if we were in one
           if (this.channelId && this.userId && this.userName) {
@@ -347,7 +366,8 @@ class SyncClient extends EventEmitter {
       channelId: this.channelId,
       isController: this.isController,
       channelInfo: this.channelInfo,
-      ntpOffset: this.ntpOffset
+      ntpOffset: this.ntpOffset,
+      isCloudflare: this.isCloudflare
     };
   }
 }
