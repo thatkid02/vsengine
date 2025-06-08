@@ -8,13 +8,20 @@ export class SyncChannel {
     this.videoState = {
       position: 0,
       playing: false,
-      lastUpdate: Date.now() / 1000,
+      lastUpdate: this.getNTPTime(),
     };
     this.MAX_USERS = parseInt(env.MAX_USERS_PER_CHANNEL || '5');
+    this.ntpOffset = 0; // Will be set from request headers
   }
 
   async fetch(request) {
     const url = new URL(request.url);
+    
+    // Extract NTP sync data from headers
+    const ntpOffset = parseFloat(request.headers.get('X-NTP-Offset') || '0');
+    const ntpTime = parseFloat(request.headers.get('X-NTP-Time') || '0');
+    
+    this.ntpOffset = ntpOffset;
     
     // Handle WebSocket upgrade
     if (request.headers.get('Upgrade') === 'websocket') {
@@ -139,7 +146,8 @@ export class SyncChannel {
     ws.send(JSON.stringify({
       type: 'CHANNEL_INFO',
       channel: this.getChannelInfo(),
-      timestamp: Date.now() / 1000,
+      timestamp: this.getNTPTime(),
+      ntpOffset: this.ntpOffset,
     }));
     
     // Notify others
@@ -147,7 +155,7 @@ export class SyncChannel {
       type: 'USER_JOINED',
       userId,
       userName,
-      timestamp: Date.now() / 1000,
+      timestamp: this.getNTPTime(),
     }, userId);
   }
 
@@ -162,7 +170,7 @@ export class SyncChannel {
       type: 'USER_LEFT',
       userId,
       userName: session.userName,
-      timestamp: Date.now() / 1000,
+      timestamp: this.getNTPTime(),
     });
     
     session.joined = false;
@@ -172,51 +180,51 @@ export class SyncChannel {
     this.videoState = {
       position,
       playing,
-      lastUpdate: Date.now() / 1000,
+      lastUpdate: this.getNTPTime(),
     };
     
     this.broadcast({
       type: 'SYNC_STATE',
       position,
       playing,
-      timestamp: Date.now() / 1000,
+      timestamp: this.getNTPTime(),
     });
   }
 
   async handlePlayCommand(ws, session, { position, targetTime }) {
     this.videoState.position = position;
     this.videoState.playing = true;
-    this.videoState.lastUpdate = Date.now() / 1000;
+    this.videoState.lastUpdate = this.getNTPTime();
     
     this.broadcast({
       type: 'PLAY_COMMAND',
       position,
-      targetTime: targetTime || (Date.now() / 1000 + 0.1),
-      timestamp: Date.now() / 1000,
+      targetTime: targetTime || (this.getNTPTime() + 0.1),
+      timestamp: this.getNTPTime(),
     });
   }
 
   async handlePauseCommand(ws, session, { position }) {
     this.videoState.position = position;
     this.videoState.playing = false;
-    this.videoState.lastUpdate = Date.now() / 1000;
+    this.videoState.lastUpdate = this.getNTPTime();
     
     this.broadcast({
       type: 'PAUSE_COMMAND',
       position,
-      timestamp: Date.now() / 1000,
+      timestamp: this.getNTPTime(),
     });
   }
 
   async handleSeekCommand(ws, session, { position, targetTime }) {
     this.videoState.position = position;
-    this.videoState.lastUpdate = Date.now() / 1000;
+    this.videoState.lastUpdate = this.getNTPTime();
     
     this.broadcast({
       type: 'SEEK_COMMAND',
       position,
-      targetTime: targetTime || (Date.now() / 1000 + 0.2),
-      timestamp: Date.now() / 1000,
+      targetTime: targetTime || (this.getNTPTime() + 0.2),
+      timestamp: this.getNTPTime(),
     });
   }
 
@@ -256,14 +264,23 @@ export class SyncChannel {
     ws.send(JSON.stringify({
       type: 'ERROR',
       error,
-      timestamp: Date.now() / 1000,
+      timestamp: this.getNTPTime(),
     }));
   }
 
   sendHeartbeat(ws) {
     ws.send(JSON.stringify({
       type: 'HEARTBEAT',
-      timestamp: Date.now() / 1000,
+      timestamp: this.getNTPTime(),
     }));
+  }
+
+  /**
+   * Get current NTP time in seconds
+   */
+  getNTPTime() {
+    const localTime = Date.now();
+    const ntpTime = localTime + this.ntpOffset;
+    return ntpTime / 1000; // Return seconds with decimal for milliseconds
   }
 }

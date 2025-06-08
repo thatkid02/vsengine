@@ -53,9 +53,11 @@ class SyncClient extends EventEmitter {
         }
         
         // For Cloudflare, append channel as query parameter
-        if (this.isCloudflare && channelId) {
+        if (this.isCloudflare) {
           const url = new URL(wsUrl);
-          url.searchParams.set('channel', channelId);
+          // Use provided channelId or default to 'default'
+          const finalChannelId = channelId && channelId.trim() ? channelId.trim() : 'default';
+          url.searchParams.set('channel', finalChannelId);
           wsUrl = url.toString();
         }
         
@@ -129,11 +131,16 @@ class SyncClient extends EventEmitter {
    * Join a sync channel
    */
   async joinChannel(channelId, userId, userName) {
+    // Validate required parameters
+    if (!channelId || channelId.trim() === '') {
+      throw new Error('Channel ID is required');
+    }
+    
     if (!this.connected) {
       // For Cloudflare, we need to reconnect with the channel parameter
       if (this.isCloudflare) {
         await this.disconnect();
-        await this.connect(channelId);
+        await this.connect(channelId.trim());
       } else {
         throw new Error('Not connected to server');
       }
@@ -141,7 +148,7 @@ class SyncClient extends EventEmitter {
 
     this.userId = userId || uuidv4();
     this.userName = userName;
-    this.channelId = channelId;
+    this.channelId = channelId.trim();
 
     this.send({
       type: 'JOIN_CHANNEL',

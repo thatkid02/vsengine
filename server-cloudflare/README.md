@@ -76,6 +76,7 @@ const serverUrl = 'wss://video-sync-engine.YOUR-SUBDOMAIN.workers.dev';
 ## Features
 
 - ✅ WebSocket support via Durable Objects
+- ✅ **NTP Time Synchronization** via HTTP time APIs
 - ✅ Automatic scaling
 - ✅ Global edge network
 - ✅ No server management
@@ -102,12 +103,38 @@ View metrics at: https://dash.cloudflare.com/workers
 - **Paid Plan**: $5/month for 10 million requests
 - **Durable Objects**: $0.15/GB storage + request costs
 
+## Time Synchronization
+
+The Cloudflare Workers version now includes **HTTP-based NTP synchronization** that provides accurate time sync comparable to the Node.js version:
+
+- **Time APIs Used**: timeapi.io and worldtimeapi.org
+- **Sync Accuracy**: Typically <500ms offset
+- **Automatic Fallback**: Multiple time servers for reliability
+- **Health Endpoint**: `/health` shows current NTP offset and sync status
+
+### Health Check Example
+```bash
+curl https://your-worker.workers.dev/health
+```
+
+Response:
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-06-08T05:05:24.941Z",
+  "ntpTime": 1749359125.199,
+  "ntpOffset": 258,
+  "lastSync": "2025-06-08T05:05:24.941Z",
+  "worker": "cloudflare"
+}
+```
+
 ## Limitations
 
-- No traditional NTP (uses Cloudflare's synchronized time)
 - 1MB WebSocket message size limit
 - 6 hour maximum WebSocket duration
 - CPU time limits per request
+- HTTP-based time sync (not UDP NTP, but equally accurate)
 
 ## Troubleshooting
 

@@ -133,6 +133,8 @@ function setupIPCListeners() {
     state.connected = true;
     updateConnectionUI();
     showNotification('Connected to sync server', 'success');
+    // Update NTP status after connection
+    setTimeout(updateNTPStatus, 1000);
   });
   
   window.api.sync.onDisconnected(() => {
@@ -145,6 +147,7 @@ function setupIPCListeners() {
   window.api.sync.onChannelInfo((info) => {
     state.inChannel = true;
     updateChannelUI(info);
+    updateNTPStatus();
   });
   
   window.api.sync.onUserJoined((data) => {
@@ -635,6 +638,13 @@ async function connectToServer() {
 // Initialize app
 init();
 
+// Update NTP status periodically
+setInterval(() => {
+  if (state.connected) {
+    updateNTPStatus();
+  }
+}, 5000); // Update every 5 seconds
+
 // Update channel info
 function updateChannelInfo(info) {
   document.getElementById('currentChannel').textContent = info.id;
@@ -678,6 +688,41 @@ function handleSeekCommand(data) {
 function handleSyncState(data) {
   if (state.vlcConnected) {
     window.api.vlc.syncToPosition(data.position, data.playing);
+  }
+}
+
+/**
+ * Update NTP offset and sync accuracy display
+ */
+async function updateNTPStatus() {
+  try {
+    const status = await window.api.sync.getStatus();
+    
+    if (status && typeof status.ntpOffset === 'number') {
+      const offsetMs = Math.abs(status.ntpOffset);
+      elements.ntpOffset.textContent = `NTP Offset: ${offsetMs.toFixed(0)}ms`;
+      
+      // Calculate sync accuracy (lower offset = better accuracy)
+      let accuracy = 'Unknown';
+      if (offsetMs < 50) {
+        accuracy = 'Excellent';
+      } else if (offsetMs < 100) {
+        accuracy = 'Good'; 
+      } else if (offsetMs < 300) {
+        accuracy = 'Fair';
+      } else {
+        accuracy = 'Poor';
+      }
+      
+      elements.syncAccuracy.textContent = `Sync Accuracy: ${accuracy} (${offsetMs.toFixed(0)}ms)`;
+    } else {
+      elements.ntpOffset.textContent = 'NTP Offset: -- ms';
+      elements.syncAccuracy.textContent = 'Sync Accuracy: -- ms';
+    }
+  } catch (error) {
+    console.error('Failed to update NTP status:', error);
+    elements.ntpOffset.textContent = 'NTP Offset: -- ms';
+    elements.syncAccuracy.textContent = 'Sync Accuracy: -- ms';
   }
 }
 
