@@ -10,12 +10,18 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Upgrade, Connection',
+      'Access-Control-Allow-Credentials': 'true',
     };
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders });
+      return new Response(null, { 
+        headers: {
+          ...corsHeaders,
+          'Access-Control-Max-Age': '86400',
+        }
+      });
     }
 
     try {
@@ -57,18 +63,31 @@ export default {
         return channel.fetch(request);
       }
 
-      // Default response
-      return new Response('Video Sync Engine - Cloudflare Workers\n\nWebSocket endpoint: wss://your-worker.workers.dev/?channel=YOUR_CHANNEL_ID', {
+      // Default response with WebSocket instructions
+      return new Response(JSON.stringify({
+        message: 'Video Sync Engine - Cloudflare Workers',
+        websocket: {
+          url: `wss://${url.hostname}/?channel=YOUR_CHANNEL_ID`,
+          instructions: 'Connect to this WebSocket URL with your channel ID'
+        }
+      }), {
         headers: {
-          'Content-Type': 'text/plain',
+          'Content-Type': 'application/json',
           ...corsHeaders,
         },
       });
 
     } catch (error) {
-      return new Response(`Error: ${error.message}`, { 
+      console.error('Worker error:', error);
+      return new Response(JSON.stringify({
+        error: error.message,
+        stack: error.stack
+      }), { 
         status: 500,
-        headers: corsHeaders,
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders,
+        },
       });
     }
   },

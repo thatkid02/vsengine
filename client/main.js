@@ -30,7 +30,17 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      spellcheck: false,
+      enableRemoteModule: false,
+      // Enable clipboard operations
+      clipboard: true,
+      // Enable context menu
+      contextIsolation: true,
+      // Enable keyboard shortcuts
+      enableBlinkFeatures: 'KeyboardShortcuts'
     },
     titleBarStyle: 'hiddenInset',
     icon: path.join(__dirname, 'assets', 'icon.png')
@@ -40,7 +50,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   // Open DevTools in development
-  if (process.argv.includes('--dev')) {
+  if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
   }
 
@@ -51,6 +61,31 @@ function createWindow() {
 
   // Setup application menu
   setupMenu();
+
+  // Enable context menu
+  mainWindow.webContents.on('context-menu', (e, params) => {
+    e.preventDefault();
+    const menu = Menu.buildFromTemplate([
+      { label: 'Cut', role: 'cut' },
+      { label: 'Copy', role: 'copy' },
+      { label: 'Paste', role: 'paste' },
+      { type: 'separator' },
+      { label: 'Select All', role: 'selectAll' }
+    ]);
+    menu.popup({ window: mainWindow, x: params.x, y: params.y });
+  });
+
+  // Handle window close
+  mainWindow.on('close', async (event) => {
+    try {
+      if (vlcController) {
+        console.log('Shutting down VLC...');
+        await vlcController.killVLC();
+      }
+    } catch (error) {
+      console.error('Error shutting down VLC:', error);
+    }
+  });
 }
 
 // Setup application menu
@@ -129,26 +164,20 @@ async function initializeControllers() {
 
   // Sync command handlers
   syncClient.on('playCommand', async (data) => {
-    if (!syncClient.isController) {
-      await vlcController.executeAtTime('play', data.targetTime, data.position);
-    }
+    await vlcController.executeAtTime('play', data.targetTime, data.position);
   });
 
   syncClient.on('pauseCommand', async (data) => {
-    if (!syncClient.isController) {
-      await vlcController.pause();
-      await vlcController.seek(data.position);
-    }
+    await vlcController.pause();
+    await vlcController.seek(data.position);
   });
 
   syncClient.on('seekCommand', async (data) => {
-    if (!syncClient.isController) {
-      await vlcController.executeAtTime('seek', data.targetTime, data.position);
-    }
+    await vlcController.executeAtTime('seek', data.targetTime, data.position);
   });
 
   syncClient.on('syncState', async (data) => {
-    if (!syncClient.isController && syncEnabled) {
+    if (syncEnabled) {
       await vlcController.syncToPosition(data.position, data.playing);
     }
   });
@@ -230,53 +259,87 @@ ipcMain.handle('app:saveSettings', (event, settings) => {
 
 ipcMain.handle('vlc:start', async () => {
   try {
-    await vlcController.startVLC();
-    startStatusMonitoring();
-    return true;
+    if (!vlcController) {
+      vlcController = new VLCController();
+    }
+    const result = await vlcController.startVLC();
+    if (result) {
+      console.log('VLC started successfully');
+      startStatusMonitoring();
+      mainWindow.webContents.send('vlc:connected', true);
+      return true;
+    }
+    throw new Error('Failed to start VLC');
   } catch (error) {
+    console.error('Error starting VLC:', error);
     throw error;
   }
 });
 
-ipcMain.handle('vlc:openFile', async (event, filePath) => {
+ipcMain.handle('vlc:openFile', async () => {
   try {
-    if (!vlcController.isConnected) {
-      await vlcController.startVLC(filePath);
+    if (!vlcController) {
+      vlcController = new VLCController();
+      await vlcController.startVLC();
       startStatusMonitoring();
-    } else {
-      await vlcController.openFile(filePath);
+      mainWindow.webContents.send('vlc:connected', true);
     }
-    return true;
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [
+        { name: 'Video Files', extensions: ['mp4', 'avi', 'mkv', 'mov', 'flv', 'wmv', 'm4v'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (result.canceled) {
+      return false;
+    }
+
+    const filePath = result.filePaths[0];
+    console.log('Opening file:', filePath);
+    
+    const status = await vlcController.openFile(filePath);
+    if (status) {
+      console.log('File opened successfully');
+      store.set('lastVideoPath', filePath);
+      mainWindow.webContents.send('video:opened', path.basename(filePath));
+      return true;
+    }
+    throw new Error('Failed to open file');
   } catch (error) {
+    console.error('Error opening file:', error);
     throw error;
   }
 });
 
 ipcMain.handle('vlc:play', async () => {
-  await vlcController.play();
-  if (syncClient && syncClient.isController) {
-    const status = await vlcController.getStatus();
-    syncClient.sendPlay(status.position);
+  if (vlcController) {
+    return await vlcController.play();
   }
+  throw new Error('VLC controller not initialized');
 });
 
 ipcMain.handle('vlc:pause', async () => {
-  const status = await vlcController.getStatus();
-  await vlcController.pause();
-  if (syncClient && syncClient.isController) {
-    syncClient.sendPause(status.position);
+  if (vlcController) {
+    return await vlcController.pause();
   }
+  throw new Error('VLC controller not initialized');
 });
 
 ipcMain.handle('vlc:seek', async (event, position) => {
-  await vlcController.seek(position);
-  if (syncClient && syncClient.isController) {
-    syncClient.sendSeek(position);
+  if (vlcController) {
+    return await vlcController.seek(position);
   }
+  throw new Error('VLC controller not initialized');
 });
 
 ipcMain.handle('vlc:setVolume', async (event, volume) => {
-  await vlcController.setVolume(volume);
+  if (vlcController) {
+    return await vlcController.setVolume(volume);
+  }
+  throw new Error('VLC controller not initialized');
 });
 
 ipcMain.handle('sync:connect', async () => {
@@ -309,6 +372,56 @@ ipcMain.handle('sync:getStatus', () => {
   return syncClient ? syncClient.getStatus() : null;
 });
 
+// Sync command handlers
+ipcMain.handle('sync:sendPlay', async (event, position, targetTime) => {
+  if (syncClient) {
+    await syncClient.sendPlay(position, targetTime);
+  }
+});
+
+ipcMain.handle('sync:sendPause', async (event, position) => {
+  if (syncClient) {
+    await syncClient.sendPause(position);
+  }
+});
+
+ipcMain.handle('sync:sendSeek', async (event, position, targetTime) => {
+  if (syncClient) {
+    await syncClient.sendSeek(position, targetTime);
+  }
+});
+
+ipcMain.handle('sync:sendSyncState', async (event, position, playing) => {
+  if (syncClient) {
+    await syncClient.sendSyncState(position, playing);
+  }
+});
+
+// VLC command handlers
+ipcMain.handle('vlc:getStatus', async () => {
+  try {
+    if (!vlcController) {
+      throw new Error('VLC controller not initialized');
+    }
+    return await vlcController.getStatus();
+  } catch (error) {
+    console.error('Error getting VLC status:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('vlc:executeAtTime', async (event, command, targetTime, position) => {
+  if (vlcController) {
+    await vlcController.executeAtTime(command, targetTime, position);
+  }
+});
+
+ipcMain.handle('vlc:syncToPosition', async (event, position, playing) => {
+  if (vlcController) {
+    await vlcController.syncToPosition(position, playing);
+  }
+});
+
 // App event handlers
 app.whenReady().then(async () => {
   createWindow();
@@ -329,5 +442,44 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+  }
+});
+
+// Handle app quit
+app.on('before-quit', async () => {
+  try {
+    if (vlcController) {
+      console.log('Shutting down VLC...');
+      await vlcController.killVLC();
+    }
+  } catch (error) {
+    console.error('Error shutting down VLC:', error);
+  }
+});
+
+// Handle process termination
+process.on('SIGINT', async () => {
+  try {
+    if (vlcController) {
+      console.log('Shutting down VLC...');
+      await vlcController.killVLC();
+    }
+    app.quit();
+  } catch (error) {
+    console.error('Error shutting down VLC:', error);
+    process.exit(1);
+  }
+});
+
+process.on('SIGTERM', async () => {
+  try {
+    if (vlcController) {
+      console.log('Shutting down VLC...');
+      await vlcController.killVLC();
+    }
+    app.quit();
+  } catch (error) {
+    console.error('Error shutting down VLC:', error);
+    process.exit(1);
   }
 });

@@ -123,36 +123,90 @@ class VLCController {
    * Get current status
    */
   async getStatus() {
-    const status = await this.makeRequest('status.json');
-    
-    // Parse status
-    const state = status.state || 'stopped';
-    const position = status.time || 0; // Position in seconds
-    const length = status.length || 0; // Total length in seconds
-    const volume = status.volume || 0;
-    
-    this.lastPosition = position;
-    this.lastState = state;
-    
-    return {
-      state,
-      position,
-      length,
-      volume,
-      playing: state === 'playing',
-      currentFile: status.information?.category?.meta?.filename
-    };
+    try {
+      const status = await this.makeRequest('status.json');
+      
+      // Parse status
+      const state = status.state || 'stopped';
+      const position = status.time || 0; // Position in seconds
+      const length = status.length || 0; // Total length in seconds
+      const volume = status.volume || 0;
+      const rate = status.rate || 1.0;
+      
+      this.lastPosition = position;
+      this.lastState = state;
+      
+      return {
+        state,
+        position,
+        length,
+        volume,
+        rate,
+        playing: state === 'playing',
+        currentFile: status.information?.category?.meta?.filename,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error getting VLC status:', error);
+      return {
+        state: 'error',
+        position: this.lastPosition,
+        length: 0,
+        volume: 0,
+        rate: 1.0,
+        playing: false,
+        currentFile: null,
+        error: error.message
+      };
+    }
   }
 
   /**
    * Play video at specific position
    */
   async play(position = null) {
-    const params = { command: 'pl_play' };
-    await this.makeRequest('status.json', params);
-    
-    if (position !== null) {
-      await this.seek(position);
+    try {
+      // First check current state
+      const currentStatus = await this.getStatus();
+      
+      // If already playing, don't send play command
+      if (currentStatus.playing && position === null) {
+        return currentStatus;
+      }
+      
+      console.log('Attempting to play video...');
+      
+      // If video was paused with rate=0, restore normal rate first
+      if (currentStatus.rate === 0) {
+        console.log('Restoring normal playback rate...');
+        await this.makeRequest('status.json', { command: 'rate', val: 1 });
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      // Send play command
+      await this.makeRequest('status.json', { command: 'pl_play' });
+      
+      if (position !== null) {
+        await this.seek(position);
+      }
+      
+      // Wait a moment for state to update
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      const status = await this.getStatus();
+      
+      // Verify it's actually playing
+      if (!status.playing) {
+        console.log('Play command failed, trying alternative...');
+        // Try forcing play with rate=1
+        await this.makeRequest('status.json', { command: 'rate', val: 1 });
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      return await this.getStatus();
+    } catch (error) {
+      console.error('Error playing video:', error);
+      throw new Error(`Failed to play video: ${error.message}`);
     }
   }
 
@@ -160,8 +214,68 @@ class VLCController {
    * Pause video
    */
   async pause() {
-    const params = { command: 'pl_pause' };
-    await this.makeRequest('status.json', params);
+    try {
+      // First check current state
+      const currentStatus = await this.getStatus();
+      
+      // If already paused, don't send pause command
+      if (!currentStatus.playing) {
+        return currentStatus;
+      }
+      
+      // Try multiple pause methods to ensure it works
+      console.log('Attempting to pause video...');
+      
+      // Method 1: Standard pl_pause command
+      await this.makeRequest('status.json', { command: 'pl_pause' });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      let status = await this.getStatus();
+      if (!status.playing) {
+        console.log('Pause successful with pl_pause');
+        return status;
+      }
+      
+      // Method 2: Try pause command
+      console.log('pl_pause failed, trying pause command...');
+      await this.makeRequest('status.json', { command: 'pause' });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      status = await this.getStatus();
+      if (!status.playing) {
+        console.log('Pause successful with pause command');
+        return status;
+      }
+      
+      // Method 3: Use rate=0 to pause
+      console.log('Standard pause failed, trying rate=0...');
+      await this.makeRequest('status.json', { command: 'rate', val: 0 });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      status = await this.getStatus();
+      if (status.rate === 0) {
+        console.log('Pause successful with rate=0');
+        // Store that we used rate method
+        status.pausedWithRate = true;
+        return status;
+      }
+      
+      // Method 4: Stop and seek back to position
+      console.log('All pause methods failed, using stop+seek...');
+      const position = currentStatus.position;
+      await this.makeRequest('status.json', { command: 'pl_stop' });
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      if (position > 0) {
+        await this.seek(position);
+      }
+      
+      return await this.getStatus();
+      
+    } catch (error) {
+      console.error('Error pausing video:', error);
+      throw new Error(`Failed to pause video: ${error.message}`);
+    }
   }
 
   /**
@@ -180,35 +294,76 @@ class VLCController {
    * Seek to position (in seconds)
    */
   async seek(position) {
-    const params = {
-      command: 'seek',
-      val: Math.floor(position)
-    };
-    await this.makeRequest('status.json', params);
+    try {
+      const params = {
+        command: 'seek',
+        val: Math.floor(position)
+      };
+      await this.makeRequest('status.json', params);
+      return await this.getStatus();
+    } catch (error) {
+      console.error('Error seeking video:', error);
+      throw new Error(`Failed to seek video: ${error.message}`);
+    }
   }
 
   /**
    * Set playback rate (1.0 = normal speed)
    */
   async setRate(rate) {
-    const params = {
-      command: 'rate',
-      val: rate
-    };
-    await this.makeRequest('status.json', params);
+    try {
+      const params = {
+        command: 'rate',
+        val: rate
+      };
+      await this.makeRequest('status.json', params);
+      return await this.getStatus();
+    } catch (error) {
+      console.error('Error setting playback rate:', error);
+      throw new Error(`Failed to set playback rate: ${error.message}`);
+    }
   }
 
   /**
    * Open a video file
    */
   async openFile(filePath) {
-    // Encode file path for URL
-    const encodedPath = encodeURIComponent(filePath);
-    const params = {
-      command: 'in_play',
-      input: `file:///${encodedPath}`
-    };
-    await this.makeRequest('status.json', params);
+    try {
+      // Check if file exists
+      await fs.access(filePath);
+      
+      // Convert to absolute path if relative
+      const absolutePath = path.resolve(filePath);
+      
+      // Encode file path for URL and handle spaces
+      const encodedPath = encodeURIComponent(absolutePath);
+      
+      // Clear playlist first
+      await this.clearPlaylist();
+      
+      const params = {
+        command: 'in_play',
+        input: `file://${encodedPath}`
+      };
+      
+      await this.makeRequest('status.json', params);
+      
+      // Wait a moment for the file to load
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Verify the file was loaded
+      const status = await this.getStatus();
+      if (!status.currentFile) {
+        throw new Error('Failed to load video file');
+      }
+      
+      return status;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        throw new Error(`Video file not found: ${filePath}`);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -220,15 +375,21 @@ class VLCController {
   }
 
   /**
-   * Set volume (0-320, where 256 = 100%)
+   * Set volume (0-100)
    */
   async setVolume(volume) {
-    const vlcVolume = Math.floor((volume / 100) * 256);
-    const params = {
-      command: 'volume',
-      val: vlcVolume
-    };
-    await this.makeRequest('status.json', params);
+    try {
+      const vlcVolume = Math.floor((volume / 100) * 256);
+      const params = {
+        command: 'volume',
+        val: vlcVolume
+      };
+      await this.makeRequest('status.json', params);
+      return await this.getStatus();
+    } catch (error) {
+      console.error('Error setting volume:', error);
+      throw new Error(`Failed to set volume: ${error.message}`);
+    }
   }
 
   /**

@@ -70,9 +70,8 @@ class VideoState {
 class Channel {
   constructor(id) {
     this.id = id;
-    this.users = new Map(); // userId -> { ws, name, isController }
+    this.users = new Map(); // userId -> { ws, name }
     this.videoState = new VideoState();
-    this.controller = null;
   }
 
   addUser(userId, ws, name) {
@@ -80,46 +79,15 @@ class Channel {
       throw new Error('Channel is full');
     }
 
-    this.users.set(userId, { ws, name, isController: false });
-
-    // First user becomes controller
-    if (this.users.size === 1) {
-      this.setController(userId);
-    }
-
+    this.users.set(userId, { ws, name });
     return true;
   }
 
   removeUser(userId) {
     const user = this.users.get(userId);
     if (!user) return false;
-
     this.users.delete(userId);
-
-    // If controller left, assign new controller
-    if (this.controller === userId && this.users.size > 0) {
-      const newController = this.users.keys().next().value;
-      this.setController(newController);
-    }
-
     return true;
-  }
-
-  setController(userId) {
-    // Reset previous controller
-    if (this.controller) {
-      const prevController = this.users.get(this.controller);
-      if (prevController) {
-        prevController.isController = false;
-      }
-    }
-
-    // Set new controller
-    this.controller = userId;
-    const user = this.users.get(userId);
-    if (user) {
-      user.isController = true;
-    }
   }
 
   broadcast(message, excludeUserId = null) {
@@ -135,11 +103,9 @@ class Channel {
       id: this.id,
       userCount: this.users.size,
       maxUsers: MAX_USERS_PER_CHANNEL,
-      controller: this.controller,
       users: Array.from(this.users.entries()).map(([userId, user]) => ({
         userId,
-        name: user.name,
-        isController: user.isController
+        name: user.name
       })),
       videoState: {
         position: this.videoState.getCurrentPosition(),
@@ -289,7 +255,6 @@ function handleLeaveChannel(ws) {
   
   if (channel) {
     const user = channel.users.get(userId);
-    const wasController = channel.controller === userId;
     
     channel.removeUser(userId);
     
@@ -300,15 +265,6 @@ function handleLeaveChannel(ws) {
       userName: user?.name,
       timestamp: ntpSync.getNTPTime()
     });
-
-    // If controller changed, notify
-    if (wasController && channel.controller) {
-      channel.broadcast({
-        type: MessageType.CONTROLLER_CHANGED,
-        newController: channel.controller,
-        timestamp: ntpSync.getNTPTime()
-      });
-    }
 
     // Remove empty channels
     if (channel.users.size === 0) {
@@ -326,19 +282,7 @@ function handleSyncState(ws, { position, playing }) {
   const channel = channels.get(session.channelId);
   if (!channel) return;
 
-  // Only controller can update state
-  if (channel.controller !== session.userId) {
-    ws.send(JSON.stringify({
-      type: MessageType.ERROR,
-      error: 'Only controller can update sync state'
-    }));
-    return;
-  }
-
-  // Update video state
   channel.videoState.update(position, playing);
-
-  // Broadcast to all users
   channel.broadcast({
     type: MessageType.SYNC_STATE,
     position,
@@ -354,23 +298,11 @@ function handlePlayCommand(ws, { position, targetTime }) {
   const channel = channels.get(session.channelId);
   if (!channel) return;
 
-  // Only controller can issue commands
-  if (channel.controller !== session.userId) {
-    ws.send(JSON.stringify({
-      type: MessageType.ERROR,
-      error: 'Only controller can issue play commands'
-    }));
-    return;
-  }
-
-  // Update state
   channel.videoState.update(position, true);
-
-  // Broadcast command
   channel.broadcast({
     type: MessageType.PLAY_COMMAND,
     position,
-    targetTime: targetTime || ntpSync.getNTPTime() + 0.1, // 100ms in future
+    targetTime: targetTime || (ntpSync.getNTPTime() + 0.1),
     timestamp: ntpSync.getNTPTime()
   });
 }
@@ -382,19 +314,7 @@ function handlePauseCommand(ws, { position }) {
   const channel = channels.get(session.channelId);
   if (!channel) return;
 
-  // Only controller can issue commands
-  if (channel.controller !== session.userId) {
-    ws.send(JSON.stringify({
-      type: MessageType.ERROR,
-      error: 'Only controller can issue pause commands'
-    }));
-    return;
-  }
-
-  // Update state
   channel.videoState.update(position, false);
-
-  // Broadcast command
   channel.broadcast({
     type: MessageType.PAUSE_COMMAND,
     position,
@@ -409,23 +329,11 @@ function handleSeekCommand(ws, { position, targetTime }) {
   const channel = channels.get(session.channelId);
   if (!channel) return;
 
-  // Only controller can issue commands
-  if (channel.controller !== session.userId) {
-    ws.send(JSON.stringify({
-      type: MessageType.ERROR,
-      error: 'Only controller can issue seek commands'
-    }));
-    return;
-  }
-
-  // Update state
   channel.videoState.update(position, channel.videoState.playing);
-
-  // Broadcast command
   channel.broadcast({
     type: MessageType.SEEK_COMMAND,
     position,
-    targetTime: targetTime || ntpSync.getNTPTime() + 0.2, // 200ms in future
+    targetTime: targetTime || (ntpSync.getNTPTime() + 0.2),
     timestamp: ntpSync.getNTPTime()
   });
 }

@@ -7,12 +7,12 @@ compatibility_date = "2023-12-01"
 name = "SYNC_CHANNELS"
 class_name = "SyncChannel"
 
-# Migrations for Durable Objects
+# Migrations for Durable Objects using SQLite
 [[migrations]]
 tag = "v1"
-new_classes = ["SyncChannel"]
+new_sqlite_classes = ["SyncChannel"]
 
-# Environment variables (add your own if needed)
+# Environment variables
 [vars]
 MAX_USERS_PER_CHANNEL = "5"
 
@@ -21,7 +21,9 @@ MAX_USERS_PER_CHANNEL = "5"
 port = 3000
 
 # Production route
-route = { pattern = "sync.thatkid.in/*", zone_name = "thatkid.in" }
+routes = [
+  { pattern = "sync.thatkid.in/*", zone_name = "thatkid.in" }
+]
 
-# Or use workers.dev subdomain for testing
-# workers_dev = true
+# Enable workers.dev subdomain for testing
+workers_dev = true

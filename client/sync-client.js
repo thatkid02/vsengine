@@ -12,10 +12,12 @@ class SyncClient extends EventEmitter {
     this.userName = null;
     this.channelId = null;
     this.channelInfo = null;
-    this.isController = false;
     this.ntpOffset = 0;
-    this.reconnectInterval = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectDelay = 1000;
     this.heartbeatInterval = null;
+    this.eventHandlers = new Map();
     this.isCloudflare = false;
   }
 
@@ -25,21 +27,52 @@ class SyncClient extends EventEmitter {
   async connect(channelId = null) {
     return new Promise((resolve, reject) => {
       try {
+        // Validate server URL
+        if (!this.serverUrl || this.serverUrl.trim() === '') {
+          throw new Error('Server URL cannot be empty');
+        }
+
         // Check if this is a Cloudflare Workers URL
         this.isCloudflare = this.serverUrl.includes('workers.dev') || 
                            this.serverUrl.includes('cloudflare');
         
+        // Ensure proper WebSocket URL format
+        let wsUrl = this.serverUrl.trim();
+        
+        // Remove any existing protocol
+        wsUrl = wsUrl.replace(/^(ws|wss):\/\//, '');
+        
+        // Add wss:// protocol
+        wsUrl = 'wss://' + wsUrl;
+        
+        // Validate URL format
+        try {
+          new URL(wsUrl);
+        } catch (e) {
+          throw new Error(`Invalid server URL: ${wsUrl}`);
+        }
+        
         // For Cloudflare, append channel as query parameter
-        let wsUrl = this.serverUrl;
         if (this.isCloudflare && channelId) {
-          const url = new URL(this.serverUrl);
+          const url = new URL(wsUrl);
           url.searchParams.set('channel', channelId);
           wsUrl = url.toString();
         }
         
+        console.log('Connecting to WebSocket URL:', wsUrl);
+        
+        // Add connection timeout
+        const connectionTimeout = setTimeout(() => {
+          if (!this.connected) {
+            this.ws?.close();
+            reject(new Error('Connection timeout'));
+          }
+        }, 10000); // 10 second timeout
+        
         this.ws = new WebSocket(wsUrl);
 
         this.ws.on('open', () => {
+          clearTimeout(connectionTimeout);
           console.log('Connected to sync server');
           this.connected = true;
           this.setupHeartbeat();
@@ -50,28 +83,30 @@ class SyncClient extends EventEmitter {
         this.ws.on('message', (data) => {
           try {
             const message = JSON.parse(data.toString());
+            console.log('Received message:', message);
             this.handleMessage(message);
           } catch (error) {
-            console.error('Failed to parse message:', error);
+            console.error('Failed to parse message:', error, 'Raw data:', data.toString());
           }
         });
 
-        this.ws.on('close', () => {
-          console.log('Disconnected from sync server');
+        this.ws.on('close', (code, reason) => {
+          clearTimeout(connectionTimeout);
+          console.log('Disconnected from sync server:', { code, reason: reason.toString() });
           this.connected = false;
-          this.isController = false;
-          this.clearHeartbeat();
-          this.emit('disconnected');
+          this.emit('disconnected', { code, reason });
           this.attemptReconnect();
         });
 
         this.ws.on('error', (error) => {
+          clearTimeout(connectionTimeout);
           console.error('WebSocket error:', error);
           this.emit('error', error);
           reject(error);
         });
 
       } catch (error) {
+        console.error('Connection setup error:', error);
         reject(error);
       }
     });
@@ -130,108 +165,147 @@ class SyncClient extends EventEmitter {
 
     this.channelId = null;
     this.channelInfo = null;
-    this.isController = false;
   }
 
   /**
-   * Send play command (controller only)
+   * Send play command
    */
-  sendPlay(position, targetTime = null) {
-    if (!this.isController) {
-      console.warn('Only controller can send play commands');
-      return;
+  async sendPlay(position, targetTime = null) {
+    if (!this.connected || !this.channelId) return;
+    
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'PLAY_COMMAND',
+        position,
+        targetTime: targetTime || (Date.now() / 1000 + 0.1),
+        timestamp: Date.now() / 1000
+      }));
+    } catch (error) {
+      console.error('Failed to send play command:', error);
     }
-
-    this.send({
-      type: 'PLAY_COMMAND',
-      position,
-      targetTime: targetTime || (this.getNTPTime() + 0.1)
-    });
   }
 
   /**
-   * Send pause command (controller only)
+   * Send pause command
    */
-  sendPause(position) {
-    if (!this.isController) {
-      console.warn('Only controller can send pause commands');
-      return;
+  async sendPause(position) {
+    if (!this.connected || !this.channelId) return;
+    
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'PAUSE_COMMAND',
+        position,
+        timestamp: Date.now() / 1000
+      }));
+    } catch (error) {
+      console.error('Failed to send pause command:', error);
     }
-
-    this.send({
-      type: 'PAUSE_COMMAND',
-      position
-    });
   }
 
   /**
-   * Send seek command (controller only)
+   * Send seek command
    */
-  sendSeek(position, targetTime = null) {
-    if (!this.isController) {
-      console.warn('Only controller can send seek commands');
-      return;
+  async sendSeek(position, targetTime = null) {
+    if (!this.connected || !this.channelId) return;
+    
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'SEEK_COMMAND',
+        position,
+        targetTime: targetTime || (Date.now() / 1000 + 0.2),
+        timestamp: Date.now() / 1000
+      }));
+    } catch (error) {
+      console.error('Failed to send seek command:', error);
     }
-
-    this.send({
-      type: 'SEEK_COMMAND',
-      position,
-      targetTime: targetTime || (this.getNTPTime() + 0.2)
-    });
   }
 
   /**
-   * Send sync state update (controller only)
+   * Send sync state update
    */
-  sendSyncState(position, playing) {
-    if (!this.isController) {
-      return;
+  async sendSyncState(position, playing) {
+    if (!this.connected || !this.channelId) return;
+    
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'SYNC_STATE',
+        position,
+        playing,
+        timestamp: Date.now() / 1000
+      }));
+    } catch (error) {
+      console.error('Failed to send sync state:', error);
     }
-
-    this.send({
-      type: 'SYNC_STATE',
-      position,
-      playing
-    });
   }
 
   /**
    * Handle incoming messages
    */
   handleMessage(message) {
-    const { type, ...payload } = message;
+    try {
+      console.log('Received message:', message);
 
-    switch (type) {
-      case 'CHANNEL_INFO':
-        this.handleChannelInfo(payload);
-        break;
-      case 'USER_JOINED':
-        this.emit('userJoined', payload);
-        break;
-      case 'USER_LEFT':
-        this.emit('userLeft', payload);
-        break;
-      case 'CONTROLLER_CHANGED':
-        this.handleControllerChanged(payload);
-        break;
-      case 'SYNC_STATE':
-        this.emit('syncState', payload);
-        break;
-      case 'PLAY_COMMAND':
-        this.emit('playCommand', payload);
-        break;
-      case 'PAUSE_COMMAND':
-        this.emit('pauseCommand', payload);
-        break;
-      case 'SEEK_COMMAND':
-        this.emit('seekCommand', payload);
-        break;
-      case 'HEARTBEAT':
-        this.handleHeartbeat(payload);
-        break;
-      case 'ERROR':
-        this.emit('error', new Error(payload.error));
-        break;
+      switch (message.type) {
+        case 'CHANNEL_INFO':
+          this.handleChannelInfo(message);
+          break;
+
+        case 'USER_JOINED':
+          this.emit('userJoined', {
+            userId: message.userId,
+            userName: message.userName
+          });
+          break;
+
+        case 'USER_LEFT':
+          this.emit('userLeft', {
+            userId: message.userId,
+            userName: message.userName
+          });
+          break;
+
+        case 'PLAY_COMMAND':
+          this.emit('playCommand', {
+            position: message.position,
+            targetTime: message.targetTime
+          });
+          break;
+
+        case 'PAUSE_COMMAND':
+          this.emit('pauseCommand', {
+            position: message.position
+          });
+          break;
+
+        case 'SEEK_COMMAND':
+          this.emit('seekCommand', {
+            position: message.position,
+            targetTime: message.targetTime
+          });
+          break;
+
+        case 'SYNC_STATE':
+          this.emit('syncState', {
+            position: message.position,
+            playing: message.playing
+          });
+          break;
+
+        case 'ERROR':
+          this.emit('error', new Error(message.error));
+          break;
+
+        case 'HEARTBEAT':
+          // Reset reconnect attempts on successful heartbeat
+          this.reconnectAttempts = 0;
+          break;
+
+        default:
+          console.warn('Unknown message type:', message.type);
+      }
+    } catch (error) {
+      console.error('Error handling message:', error);
+      this.emit('error', error);
     }
   }
 
@@ -240,7 +314,6 @@ class SyncClient extends EventEmitter {
    */
   handleChannelInfo(payload) {
     this.channelInfo = payload.channel;
-    this.isController = this.channelInfo.controller === this.userId;
     
     // Update NTP offset from server timestamp
     if (payload.timestamp) {
@@ -248,31 +321,8 @@ class SyncClient extends EventEmitter {
       const localTime = Date.now();
       this.ntpOffset = serverTime - localTime;
     }
-
+    
     this.emit('channelInfo', this.channelInfo);
-  }
-
-  /**
-   * Handle controller change
-   */
-  handleControllerChanged(payload) {
-    if (this.channelInfo) {
-      this.channelInfo.controller = payload.newController;
-      this.isController = payload.newController === this.userId;
-    }
-    this.emit('controllerChanged', payload);
-  }
-
-  /**
-   * Handle heartbeat
-   */
-  handleHeartbeat(payload) {
-    // Update NTP offset
-    if (payload.timestamp) {
-      const serverTime = payload.timestamp * 1000;
-      const localTime = Date.now();
-      this.ntpOffset = serverTime - localTime;
-    }
   }
 
   /**
@@ -324,9 +374,11 @@ class SyncClient extends EventEmitter {
    * Attempt to reconnect
    */
   attemptReconnect() {
-    if (this.reconnectInterval) return;
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
 
-    this.reconnectInterval = setInterval(async () => {
+    this.reconnectAttempts++;
+    console.log(`Attempting to reconnect, attempt ${this.reconnectAttempts} of ${this.maxReconnectAttempts}`);
+    setTimeout(async () => {
       if (!this.connected) {
         console.log('Attempting to reconnect...');
         try {
@@ -340,19 +392,17 @@ class SyncClient extends EventEmitter {
           this.clearReconnect();
         } catch (error) {
           console.error('Reconnection failed:', error);
+          this.attemptReconnect();
         }
       }
-    }, 5000); // Try every 5 seconds
+    }, this.reconnectDelay);
   }
 
   /**
    * Clear reconnection attempts
    */
   clearReconnect() {
-    if (this.reconnectInterval) {
-      clearInterval(this.reconnectInterval);
-      this.reconnectInterval = null;
-    }
+    this.reconnectAttempts = 0;
   }
 
   /**
@@ -364,7 +414,6 @@ class SyncClient extends EventEmitter {
       userId: this.userId,
       userName: this.userName,
       channelId: this.channelId,
-      isController: this.isController,
       channelInfo: this.channelInfo,
       ntpOffset: this.ntpOffset,
       isCloudflare: this.isCloudflare

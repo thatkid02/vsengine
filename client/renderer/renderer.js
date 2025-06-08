@@ -1,8 +1,6 @@
-// State management
 let state = {
   connected: false,
   inChannel: false,
-  isController: false,
   vlcConnected: false,
   currentVideo: null,
   videoStatus: null,
@@ -62,6 +60,45 @@ async function init() {
   
   // Setup IPC listeners
   setupIPCListeners();
+
+  // Initialize input fields
+  const serverUrlInput = document.getElementById('serverUrl');
+  const userNameInput = document.getElementById('userName');
+  const channelIdInput = document.getElementById('channelId');
+
+  // Enable paste operations
+  [serverUrlInput, userNameInput, channelIdInput].forEach(input => {
+    // Remove any existing event listeners
+    input.removeEventListener('paste', handlePaste);
+    input.removeEventListener('keydown', handleKeyDown);
+
+    // Add paste event listener
+    input.addEventListener('paste', handlePaste);
+    
+    // Add keyboard shortcut listener
+    input.addEventListener('keydown', handleKeyDown);
+  });
+
+  // Paste event handler
+  function handlePaste(e) {
+    // Don't prevent default - allow the paste to happen
+    console.log('Paste event triggered');
+  }
+
+  // Keyboard shortcut handler
+  function handleKeyDown(e) {
+    // Allow Cmd+V (Mac) or Ctrl+V (Windows/Linux)
+    if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+      console.log('Paste shortcut triggered');
+      // Don't prevent default - allow the paste to happen
+    }
+  }
+
+  // Load saved settings
+  window.api.getSettings().then(settings => {
+    serverUrlInput.value = settings.serverUrl || '';
+    userNameInput.value = settings.userName || '';
+  });
 }
 
 // Event Listeners
@@ -107,7 +144,6 @@ function setupIPCListeners() {
   
   window.api.sync.onChannelInfo((info) => {
     state.inChannel = true;
-    state.isController = info.controller === info.users.find(u => u.isController)?.userId;
     updateChannelUI(info);
   });
   
@@ -151,14 +187,46 @@ function setupIPCListeners() {
 async function handleConnect() {
   try {
     if (!state.connected) {
+      // Show loading state
+      elements.connectBtn.disabled = true;
+      elements.connectBtn.innerHTML = `
+        <svg class="spinner" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" opacity=".25"/>
+          <path d="M12,4a8,8,0,0,1,7.89,6.7A1.53,1.53,0,0,0,21.38,12h0a1.5,1.5,0,0,0,1.48-1.75,11,11,0,0,0-21.72,0A1.5,1.5,0,0,0,2.62,12h0a1.53,1.53,0,0,0,1.49-1.3A8,8,0,0,1,12,4Z"/>
+        </svg>
+        Connecting...
+      `;
+      
       await window.api.sync.connect();
       elements.connectBtn.textContent = 'Disconnect';
+      elements.connectBtn.classList.add('connected');
     } else {
+      // Show loading state for disconnect
+      elements.connectBtn.disabled = true;
+      elements.connectBtn.innerHTML = `
+        <svg class="spinner" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" opacity=".25"/>
+          <path d="M12,4a8,8,0,0,1,7.89,6.7A1.53,1.53,0,0,0,21.38,12h0a1.5,1.5,0,0,0,1.48-1.75,11,11,0,0,0-21.72,0A1.5,1.5,0,0,0,2.62,12h0a1.53,1.53,0,0,0,1.49-1.3A8,8,0,0,1,12,4Z"/>
+        </svg>
+        Disconnecting...
+      `;
+      
       await window.api.sync.disconnect();
       elements.connectBtn.textContent = 'Connect';
+      elements.connectBtn.classList.remove('connected');
     }
   } catch (error) {
     showNotification(`Connection failed: ${error.message}`, 'error');
+    // Reset button state on error
+    if (state.connected) {
+      elements.connectBtn.textContent = 'Disconnect';
+      elements.connectBtn.classList.add('connected');
+    } else {
+      elements.connectBtn.textContent = 'Connect';
+      elements.connectBtn.classList.remove('connected');
+    }
+  } finally {
+    elements.connectBtn.disabled = false;
   }
 }
 
@@ -171,76 +239,188 @@ async function handleJoinChannel() {
     return;
   }
   
+  if (!state.connected) {
+    showNotification('Please connect to server first', 'error');
+    return;
+  }
+  
   try {
+    // Show loading state
+    elements.joinChannelBtn.disabled = true;
+    elements.joinChannelBtn.innerHTML = `
+      <svg class="spinner" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" opacity=".25"/>
+        <path d="M12,4a8,8,0,0,1,7.89,6.7A1.53,1.53,0,0,0,21.38,12h0a1.5,1.5,0,0,0,1.48-1.75,11,11,0,0,0-21.72,0A1.5,1.5,0,0,0,2.62,12h0a1.53,1.53,0,0,0,1.49-1.3A8,8,0,0,1,12,4Z"/>
+      </svg>
+      Joining...
+    `;
+    
+    // Disable input fields while joining
+    elements.channelId.disabled = true;
+    elements.userName.disabled = true;
+    
     await window.api.sync.joinChannel(channelId, userName);
+    
+    // Success - update UI
+    elements.channelInfo.style.display = 'block';
+    elements.joinChannelBtn.style.display = 'none';
+    elements.leaveChannelBtn.disabled = false;
+    elements.leaveChannelBtn.style.display = 'inline-block';
+    
+    showNotification('Joined channel successfully', 'success');
+    
   } catch (error) {
     showNotification(`Failed to join channel: ${error.message}`, 'error');
+    
+    // Reset button and inputs on error
+    elements.joinChannelBtn.disabled = false;
+    elements.joinChannelBtn.textContent = 'Join Channel';
+    elements.channelId.disabled = false;
+    elements.userName.disabled = false;
   }
 }
 
 async function handleLeaveChannel() {
-  await window.api.sync.leaveChannel();
-  state.inChannel = false;
-  state.isController = false;
-  updateChannelUI(null);
+  try {
+    // Show loading state
+    elements.leaveChannelBtn.disabled = true;
+    elements.leaveChannelBtn.innerHTML = `
+      <svg class="spinner" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" opacity=".25"/>
+        <path d="M12,4a8,8,0,0,1,7.89,6.7A1.53,1.53,0,0,0,21.38,12h0a1.5,1.5,0,0,0,1.48-1.75,11,11,0,0,0-21.72,0A1.5,1.5,0,0,0,2.62,12h0a1.53,1.53,0,0,0,1.49-1.3A8,8,0,0,1,12,4Z"/>
+      </svg>
+      Leaving...
+    `;
+    
+    await window.api.sync.leaveChannel();
+    state.inChannel = false;
+    
+    // Reset UI to initial state
+    elements.channelInfo.style.display = 'none';
+    elements.joinChannelBtn.style.display = 'inline-block';
+    elements.joinChannelBtn.disabled = false;
+    elements.joinChannelBtn.textContent = 'Join Channel';
+    elements.leaveChannelBtn.style.display = 'none';
+    elements.channelId.disabled = false;
+    elements.userName.disabled = false;
+    
+    updateChannelUI(null);
+    showNotification('Left channel successfully', 'success');
+    
+  } catch (error) {
+    showNotification(`Failed to leave channel: ${error.message}`, 'error');
+    
+    // Reset button on error
+    elements.leaveChannelBtn.disabled = false;
+    elements.leaveChannelBtn.textContent = 'Leave Channel';
+  }
 }
 
 async function handlePlay() {
+  if (!state.vlcConnected) return;
+  
   try {
+    const status = await window.api.vlc.getStatus();
     await window.api.vlc.play();
+    
+    // Only send sync command if in a channel
+    if (state.inChannel) {
+      await window.api.sync.sendPlay(status.position);
+    }
+    
+    showNotification('Video playing', 'success');
   } catch (error) {
     showNotification(`Play failed: ${error.message}`, 'error');
   }
 }
 
 async function handlePause() {
+  if (!state.vlcConnected) return;
+  
   try {
+    const status = await window.api.vlc.getStatus();
     await window.api.vlc.pause();
+    
+    // Only send sync command if in a channel
+    if (state.inChannel) {
+      await window.api.sync.sendPause(status.position);
+    }
+    
+    showNotification('Video paused', 'success');
   } catch (error) {
     showNotification(`Pause failed: ${error.message}`, 'error');
   }
 }
 
 async function handleOpenVideo() {
-  // File dialog is handled in main process
-  // Just trigger the menu action or send a message to main
-  // The actual implementation in main.js will handle the dialog
-  showNotification('Use File → Open Video menu or drag a video file', 'info');
+  try {
+    const result = await window.api.vlc.openFile();
+    if (result) {
+      showNotification('Video opened successfully', 'success');
+    } else {
+      showNotification('Failed to open video', 'error');
+    }
+  } catch (error) {
+    showNotification(`Error opening video: ${error.message}`, 'error');
+  }
 }
 
 async function handleStartVLC() {
   try {
-    await window.api.vlc.start();
-    showNotification('VLC started', 'success');
+    elements.startVLCBtn.disabled = true;
+    elements.startVLCBtn.textContent = 'Starting VLC...';
+    
+    const result = await window.api.vlc.start();
+    if (result) {
+      showNotification('VLC started successfully', 'success');
+      state.vlcConnected = true;
+      updateVLCStatus();
+    } else {
+      showNotification('Failed to start VLC', 'error');
+    }
   } catch (error) {
     showNotification(`Failed to start VLC: ${error.message}`, 'error');
+  } finally {
+    elements.startVLCBtn.disabled = false;
+    elements.startVLCBtn.textContent = 'Start VLC';
   }
 }
 
 let isSeeking = false;
-function handleSeek(event) {
-  if (!state.isController && state.inChannel) return;
-  isSeeking = true;
-  const position = (event.target.value / 100) * state.videoStatus.length;
-  elements.currentTime.textContent = formatTime(position);
+async function handleSeek(event) {
+  if (!state.vlcConnected || !state.videoStatus) return;
+  
+  const seekPercent = event.target.value;
+  const seekTime = (seekPercent / 100) * state.videoStatus.length;
+  
+  // Update time display immediately for better UX
+  elements.currentTime.textContent = formatTime(seekTime);
 }
 
 async function handleSeekEnd(event) {
-  if (!state.isController && state.inChannel) return;
-  isSeeking = false;
-  const position = (event.target.value / 100) * state.videoStatus.length;
+  if (!state.vlcConnected || !state.videoStatus) return;
+  
   try {
-    await window.api.vlc.seek(position);
+    const seekPercent = event.target.value;
+    const seekTime = (seekPercent / 100) * state.videoStatus.length;
+    
+    await window.api.vlc.seek(seekTime);
+    if (state.inChannel) {
+      await window.api.sync.sendSeek(seekTime);
+    }
   } catch (error) {
-    showNotification(`Seek failed: ${error.message}`, 'error');
+    showNotification(`Failed to seek: ${error.message}`, 'error');
   }
 }
 
 async function handleVolumeChange(event) {
+  if (!state.vlcConnected) return;
+  
   try {
-    await window.api.vlc.setVolume(event.target.value);
+    const volume = parseInt(event.target.value);
+    await window.api.vlc.setVolume(volume);
   } catch (error) {
-    console.error('Volume change failed:', error);
+    showNotification(`Failed to change volume: ${error.message}`, 'error');
   }
 }
 
@@ -250,13 +430,30 @@ function updateConnectionUI() {
     elements.syncStatus.classList.add('connected');
     elements.syncStatusText.textContent = 'Connected';
     elements.connectBtn.textContent = 'Disconnect';
+    elements.connectBtn.classList.add('connected');
     elements.joinChannelBtn.disabled = false;
+    
+    // Show success state briefly
+    elements.connectBtn.classList.add('success');
+    setTimeout(() => {
+      elements.connectBtn.classList.remove('success');
+    }, 2000);
+    
   } else {
     elements.syncStatus.classList.remove('connected');
     elements.syncStatusText.textContent = 'Disconnected';
     elements.connectBtn.textContent = 'Connect';
+    elements.connectBtn.classList.remove('connected');
     elements.joinChannelBtn.disabled = true;
+    
+    // Reset channel UI
     elements.channelInfo.style.display = 'none';
+    elements.joinChannelBtn.style.display = 'inline-block';
+    elements.joinChannelBtn.textContent = 'Join Channel';
+    elements.leaveChannelBtn.style.display = 'none';
+    elements.channelId.disabled = false;
+    elements.userName.disabled = false;
+    state.inChannel = false;
   }
 }
 
@@ -280,63 +477,85 @@ function updateChannelUI(info) {
   elements.usersList.innerHTML = '';
   info.users.forEach(user => {
     const li = document.createElement('li');
-    li.innerHTML = `
-      ${user.isController ? '<span class="controller-icon">👑</span>' : ''}
-      <span>${user.name}</span>
-    `;
+    li.textContent = user.name;
     elements.usersList.appendChild(li);
   });
   
   // Update controls based on role
-  updateControlsForRole(isController);
+  updateControlsForRole();
 }
 
-function updateControlsForRole(isController) {
-  state.isController = isController;
-  if (state.inChannel && !isController) {
-    elements.playBtn.disabled = true;
-    elements.pauseBtn.disabled = true;
-    elements.seekBar.disabled = true;
+function updateControlsForRole() {
+  if (state.inChannel) {
+    // In channel mode, enable controls if VLC is connected and has video
+    const hasVideo = state.videoStatus && state.videoStatus.currentFile;
+    elements.playBtn.disabled = !state.vlcConnected || !hasVideo;
+    elements.pauseBtn.disabled = !state.vlcConnected || !hasVideo;
+    elements.seekBar.disabled = !state.vlcConnected || !hasVideo;
     elements.syncIndicator.style.display = 'block';
   } else {
     elements.syncIndicator.style.display = 'none';
-    updateVideoControls();
+    // When not in channel, use regular VLC status
+    updateVLCStatus();
   }
 }
 
 function updateVLCStatus() {
-  if (state.vlcConnected) {
-    elements.vlcStatus.textContent = 'Connected';
-    elements.vlcStatus.classList.add('connected');
-    updateVideoControls();
-  } else {
-    elements.vlcStatus.textContent = 'Not Connected';
-    elements.vlcStatus.classList.remove('connected');
-    elements.playBtn.disabled = true;
-    elements.pauseBtn.disabled = true;
-    elements.seekBar.disabled = true;
-  }
+  const status = state.vlcConnected ? 'Connected' : 'Not Connected';
+  elements.vlcStatus.textContent = status;
+  elements.vlcStatus.className = `status-text ${state.vlcConnected ? 'connected' : 'disconnected'}`;
+  
+  // Update control buttons based on VLC connection and video status
+  const hasVideo = state.videoStatus && state.videoStatus.currentFile;
+  elements.playBtn.disabled = !state.vlcConnected || !hasVideo;
+  elements.pauseBtn.disabled = !state.vlcConnected || !hasVideo;
+  elements.openVideoBtn.disabled = !state.vlcConnected;
+  elements.seekBar.disabled = !state.vlcConnected || !hasVideo;
 }
 
 function updateVideoStatus(status) {
   if (!status) return;
   
-  // Update time
+  // Store the status in state
+  state.videoStatus = status;
+  
+  // Update video info
+  elements.currentVideo.textContent = status.currentFile || 'No video loaded';
+  
+  // Update time display
   elements.currentTime.textContent = formatTime(status.position);
   elements.totalTime.textContent = formatTime(status.length);
   
   // Update seek bar
-  if (!isSeeking && status.length > 0) {
-    const progress = (status.position / status.length) * 100;
-    elements.seekBar.value = progress;
+  const progress = status.length > 0 ? (status.position / status.length) * 100 : 0;
+  elements.seekBar.value = progress;
+  
+  // Update play/pause buttons visibility
+  elements.playBtn.style.display = status.playing ? 'none' : 'block';
+  elements.pauseBtn.style.display = status.playing ? 'block' : 'none';
+  
+  // Update volume slider
+  const volumePercent = Math.round((status.volume / 256) * 100);
+  elements.volumeSlider.value = volumePercent;
+  
+  // Show error if any
+  if (status.error) {
+    showNotification(`VLC Error: ${status.error}`, 'error');
   }
   
-  // Update controls
-  updateVideoControls();
+  // Update sync indicator
+  if (state.inChannel && status.playing) {
+    elements.syncIndicator.style.display = 'block';
+  } else {
+    elements.syncIndicator.style.display = 'none';
+  }
+  
+  // Update button states based on video availability
+  updateVLCStatus();
 }
 
 function updateVideoControls() {
-  if (state.vlcConnected && (!state.inChannel || state.isController)) {
+  if (state.vlcConnected) {
     elements.playBtn.disabled = false;
     elements.pauseBtn.disabled = false;
     elements.seekBar.disabled = false;
@@ -353,8 +572,14 @@ async function updateUsersList() {
 // Utilities
 function formatTime(seconds) {
   if (!seconds || isNaN(seconds)) return '00:00';
-  const minutes = Math.floor(seconds / 60);
+  
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
+  
+  if (hours > 0) {
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
   return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
@@ -379,5 +604,85 @@ async function saveSettings() {
   });
 }
 
+// Connect to server
+async function connectToServer() {
+  const serverUrl = document.getElementById('serverUrl').value.trim();
+  const userName = document.getElementById('userName').value.trim();
+  
+  if (!serverUrl) {
+    showNotification('Please enter a server URL', 'error');
+    return;
+  }
+  
+  if (!userName) {
+    showNotification('Please enter your name', 'error');
+    return;
+  }
+
+  try {
+    updateSyncStatus('Connecting...', 'connecting');
+    await syncClient.connect();
+    updateSyncStatus('Connected', 'connected');
+    document.getElementById('joinChannelBtn').disabled = false;
+    showNotification('Connected to server', 'success');
+  } catch (error) {
+    console.error('Connection error:', error);
+    updateSyncStatus('Connection failed', 'error');
+    showNotification(`Connection failed: ${error.message}`, 'error');
+  }
+}
+
 // Initialize app
 init();
+
+// Update channel info
+function updateChannelInfo(info) {
+  document.getElementById('currentChannel').textContent = info.id;
+  document.getElementById('userCount').textContent = info.userCount;
+  
+  // Update users list
+  const usersList = document.getElementById('usersList');
+  usersList.innerHTML = '';
+  info.users.forEach(user => {
+    const li = document.createElement('li');
+    li.textContent = user.name;
+    usersList.appendChild(li);
+  });
+
+  // Enable video controls for all users
+  elements.playBtn.disabled = false;
+  elements.pauseBtn.disabled = false;
+  elements.seekBar.disabled = false;
+}
+
+// Handle sync commands
+function handlePlayCommand(data) {
+  if (state.vlcConnected) {
+    window.api.vlc.executeAtTime('play', data.targetTime, data.position);
+  }
+}
+
+function handlePauseCommand(data) {
+  if (state.vlcConnected) {
+    window.api.vlc.pause();
+    window.api.vlc.seek(data.position);
+  }
+}
+
+function handleSeekCommand(data) {
+  if (state.vlcConnected) {
+    window.api.vlc.executeAtTime('seek', data.targetTime, data.position);
+  }
+}
+
+function handleSyncState(data) {
+  if (state.vlcConnected) {
+    window.api.vlc.syncToPosition(data.position, data.playing);
+  }
+}
+
+// Setup sync event handlers
+window.api.sync.onPlayCommand(handlePlayCommand);
+window.api.sync.onPauseCommand(handlePauseCommand);
+window.api.sync.onSeekCommand(handleSeekCommand);
+window.api.sync.onSyncState(handleSyncState);

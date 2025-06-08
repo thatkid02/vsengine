@@ -5,7 +5,6 @@ export class SyncChannel {
     this.env = env;
     this.sessions = new Map(); // ws -> session info
     this.users = new Map(); // userId -> user info
-    this.controller = null;
     this.videoState = {
       position: 0,
       playing: false,
@@ -132,16 +131,9 @@ export class SyncChannel {
       userId,
       userName,
       ws,
-      isController: false,
     };
     
     this.users.set(userId, userInfo);
-    
-    // First user becomes controller
-    if (this.users.size === 1) {
-      this.controller = userId;
-      userInfo.isController = true;
-    }
     
     // Send channel info to new user
     ws.send(JSON.stringify({
@@ -165,22 +157,6 @@ export class SyncChannel {
     const { userId } = session;
     this.users.delete(userId);
     
-    // If controller left, assign new controller
-    if (this.controller === userId && this.users.size > 0) {
-      const newController = this.users.keys().next().value;
-      this.controller = newController;
-      const newControllerInfo = this.users.get(newController);
-      if (newControllerInfo) {
-        newControllerInfo.isController = true;
-      }
-      
-      this.broadcast({
-        type: 'CONTROLLER_CHANGED',
-        newController,
-        timestamp: Date.now() / 1000,
-      });
-    }
-    
     // Notify others
     this.broadcast({
       type: 'USER_LEFT',
@@ -193,11 +169,6 @@ export class SyncChannel {
   }
 
   async handleSyncState(ws, session, { position, playing }) {
-    if (session.userId !== this.controller) {
-      this.sendError(ws, 'Only controller can update sync state');
-      return;
-    }
-    
     this.videoState = {
       position,
       playing,
@@ -213,11 +184,6 @@ export class SyncChannel {
   }
 
   async handlePlayCommand(ws, session, { position, targetTime }) {
-    if (session.userId !== this.controller) {
-      this.sendError(ws, 'Only controller can issue play commands');
-      return;
-    }
-    
     this.videoState.position = position;
     this.videoState.playing = true;
     this.videoState.lastUpdate = Date.now() / 1000;
@@ -231,11 +197,6 @@ export class SyncChannel {
   }
 
   async handlePauseCommand(ws, session, { position }) {
-    if (session.userId !== this.controller) {
-      this.sendError(ws, 'Only controller can issue pause commands');
-      return;
-    }
-    
     this.videoState.position = position;
     this.videoState.playing = false;
     this.videoState.lastUpdate = Date.now() / 1000;
@@ -248,11 +209,6 @@ export class SyncChannel {
   }
 
   async handleSeekCommand(ws, session, { position, targetTime }) {
-    if (session.userId !== this.controller) {
-      this.sendError(ws, 'Only controller can issue seek commands');
-      return;
-    }
-    
     this.videoState.position = position;
     this.videoState.lastUpdate = Date.now() / 1000;
     
@@ -273,26 +229,18 @@ export class SyncChannel {
   }
 
   getChannelInfo() {
-    const users = Array.from(this.users.values()).map(user => ({
-      userId: user.userId,
-      name: user.userName,
-      isController: user.isController,
-    }));
-    
-    const currentPosition = this.videoState.playing
-      ? this.videoState.position + (Date.now() / 1000 - this.videoState.lastUpdate)
-      : this.videoState.position;
-    
     return {
-      id: 'channel', // In real implementation, use actual channel ID
+      id: this.state.id,
       userCount: this.users.size,
       maxUsers: this.MAX_USERS,
-      controller: this.controller,
-      users,
+      users: Array.from(this.users.entries()).map(([userId, user]) => ({
+        userId,
+        name: user.userName
+      })),
       videoState: {
-        position: currentPosition,
-        playing: this.videoState.playing,
-      },
+        position: this.videoState.position,
+        playing: this.videoState.playing
+      }
     };
   }
 
