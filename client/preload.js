@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('api', {
     disconnect: () => ipcRenderer.invoke('sync:disconnect'),
     joinChannel: (channelId, userId, userName) => 
       ipcRenderer.invoke('sync:joinChannel', channelId, userId, userName),
+    joinChannelWithMode: (channelId, userName, mode) => 
+      ipcRenderer.invoke('sync:joinChannelWithMode', channelId, userName, mode),
     leaveChannel: () => ipcRenderer.invoke('sync:leaveChannel'),
     sendPlay: (position, targetTime) => 
       ipcRenderer.invoke('sync:sendPlay', position, targetTime),
@@ -50,6 +52,22 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('sync:sendSeek', position, targetTime),
     sendSyncState: (position, playing) => 
       ipcRenderer.invoke('sync:sendSyncState', position, playing),
+    
+    // Enhanced mode management
+    changeMode: (mode) => ipcRenderer.invoke('sync:changeMode', mode),
+    
+    // File sharing methods
+    uploadFile: (file, onProgress) => ipcRenderer.invoke('sync:uploadFile', file, onProgress),
+    downloadFile: (fileId) => ipcRenderer.invoke('sync:downloadFile', fileId),
+    
+    // Screen sharing methods
+    startScreenShare: (quality, frameRate) => 
+      ipcRenderer.invoke('sync:startScreenShare', quality, frameRate),
+    stopScreenShare: () => ipcRenderer.invoke('sync:stopScreenShare'),
+    connectToScreenShare: (hostId) => 
+      ipcRenderer.invoke('sync:connectToScreenShare', hostId),
+    disconnectFromScreenShare: () => 
+      ipcRenderer.invoke('sync:disconnectFromScreenShare'),
     
     // Event handlers
     onConnected: (callback) => ipcRenderer.on('sync:connected', callback),
@@ -65,12 +83,43 @@ contextBridge.exposeInMainWorld('api', {
     getStatus: () => ipcRenderer.invoke('sync:getStatus'),
     onControllerChanged: (callback) => {
       ipcRenderer.on('sync:controllerChanged', (event, data) => callback(data));
-    }
+    },
+    
+    // Enhanced event handlers
+    onWelcome: (callback) => ipcRenderer.on('sync:welcome', (_, data) => callback(data)),
+    onModeChanged: (callback) => ipcRenderer.on('sync:modeChanged', (_, data) => callback(data)),
+    onUserModeChanged: (callback) => ipcRenderer.on('sync:userModeChanged', (_, data) => callback(data)),
+    
+    // File sharing events
+    onFileUploadStarted: (callback) => ipcRenderer.on('sync:fileUploadStarted', (_, data) => callback(data)),
+    onFileUploadProgress: (callback) => ipcRenderer.on('sync:fileUploadProgress', (_, data) => callback(data)),
+    onFileAvailable: (callback) => ipcRenderer.on('sync:fileAvailable', (_, data) => callback(data)),
+    onFileDownloadReady: (callback) => ipcRenderer.on('sync:fileDownloadReady', (_, data) => callback(data)),
+    
+    // Screen sharing events
+    onScreenShareAvailable: (callback) => ipcRenderer.on('sync:screenShareAvailable', (_, data) => callback(data)),
+    onScreenShareEnded: (callback) => ipcRenderer.on('sync:screenShareEnded', (_, data) => callback(data)),
+    onScreenShareReceived: (callback) => ipcRenderer.on('sync:screenShareReceived', (_, data) => callback(data)),
+    onScreenShareStarted: (callback) => ipcRenderer.on('sync:screenShareStarted', (_, data) => callback(data)),
+    onScreenShareStopped: (callback) => ipcRenderer.on('sync:screenShareStopped', (_, data) => callback(data)),
+    
+    // WebRTC signaling events
+    onScreenShareOffer: (callback) => ipcRenderer.on('sync:screenShareOffer', (_, data) => callback(data)),
+    onScreenShareAnswer: (callback) => ipcRenderer.on('sync:screenShareAnswer', (_, data) => callback(data)),
+    onIceCandidate: (callback) => ipcRenderer.on('sync:iceCandidate', (_, data) => callback(data)),
+    
+    // Send WebRTC signaling messages
+    sendMessage: (message) => ipcRenderer.invoke('sync:sendMessage', message)
   },
 
   // Video events
   onVideoOpened: (callback) => {
     ipcRenderer.on('video:opened', (event, filename) => callback(filename));
+  },
+
+  // Screen capture for Electron
+  screen: {
+    getSources: () => ipcRenderer.invoke('screen:getSources')
   },
 
   // Settings

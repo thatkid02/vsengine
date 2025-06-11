@@ -1,0 +1,270 @@
+/* Enhanced UI Components */
+.mode-selector {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.mode-selector select {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.file-controls, .screen-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quality-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quality-selector label {
+  font-weight: 500;
+}
+
+.quality-selector select {
+  padding: 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.screen-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 20px;
+  background-color: #f0f0f0;
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 5px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4CAF50, #45a049);
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.shared-files, .screen-shares {
+  margin-top: 15px;
+}
+
+.shared-files h5, .screen-shares h5 {
+  margin: 0 0 10px 0;
+  color: #666;
+  font-size: 14px;
+}
+
+.file-item, .screen-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.file-info, .screen-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-name, .screen-host {
+  font-weight: 500;
+  color: #333;
+}
+
+.file-details, .screen-details {
+  font-size: 12px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.file-actions, .screen-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-small {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn-download {
+  background: #007bff;
+  color: white;
+}
+
+.btn-download:hover {
+  background: #0056b3;
+}
+
+.btn-watch {
+  background: #28a745;
+  color: white;
+}
+
+.btn-watch:hover {
+  background: #1e7e34;
+}
+
+.btn-disconnect {
+  background: #dc3545;
+  color: white;
+}
+
+.btn-disconnect:hover {
+  background: #c82333;
+}
+
+.users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.user-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 4px solid #007bff;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-name {
+  font-weight: 500;
+  color: #333;
+}
+
+.user-mode {
+  font-size: 12px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.user-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #28a745;
+}
+
+.status-indicator.screenshare {
+  background: #fd7e14;
+}
+
+.status-indicator.viewer {
+  background: #6f42c1;
+}
+
+.status-indicator.observer {
+  background: #6c757d;
+}
+
+.status-indicator.downloading {
+  background: #17a2b8;
+}
+
+#screenShareVideo {
+  width: 100%;
+  max-width: 500px;
+  height: auto;
+  background: #000;
+  border-radius: 8px;
+}
+
+/* Mode-specific visibility */
+.form-section:not([style*="display: none"]) {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Enhanced button states */
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.active {
+  background: #28a745 !important;
+  color: white;
+}
+
+/* Upload progress animation */
+.progress-fill {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  background-image: linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.2) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.2) 50%,
+    rgba(255, 255, 255, 0.2) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 50px 50px;
+  animation: move 2s linear infinite;
+}
+
+@keyframes move {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 50px 50px;
+  }
+} 

@@ -4,7 +4,13 @@ let state = {
   vlcConnected: false,
   currentVideo: null,
   videoStatus: null,
-  syncStatus: null
+  syncStatus: null,
+  userMode: 'localplay',
+  users: new Map(),
+  sharedFiles: new Map(),
+  screenSharers: new Set(),
+  isScreenSharing: false,
+  watchingScreenShare: null
 };
 
 // DOM Elements
@@ -45,8 +51,35 @@ const elements = {
   // Status
   ntpOffset: document.getElementById('ntpOffset'),
   syncAccuracy: document.getElementById('syncAccuracy'),
-  syncIndicator: document.getElementById('syncIndicator')
+  syncIndicator: document.getElementById('syncIndicator'),
+  
+  // New enhanced elements
+  userMode: document.getElementById('userMode'),
+  changeModeBtn: document.getElementById('changeModeBtn'),
+  currentMode: document.getElementById('currentMode'),
+  modeStatus: document.getElementById('modeStatus'),
+  
+  // File sharing elements
+  fileSharingSection: document.getElementById('fileSharingSection'),
+  fileInput: document.getElementById('fileInput'),
+  uploadFileBtn: document.getElementById('uploadFileBtn'),
+  uploadProgress: document.getElementById('uploadProgress'),
+  uploadProgressBar: document.getElementById('uploadProgressBar'),
+  uploadStatus: document.getElementById('uploadStatus'),
+  filesList: document.getElementById('filesList'),
+  
+  // Screen sharing elements
+  screenSharingSection: document.getElementById('screenSharingSection'),
+  screenQuality: document.getElementById('screenQuality'),
+  startScreenShareBtn: document.getElementById('startScreenShareBtn'),
+  stopScreenShareBtn: document.getElementById('stopScreenShareBtn'),
+  screensList: document.getElementById('screensList'),
+  screenShareViewer: document.getElementById('screenShareViewer'),
+  screenShareVideo: document.getElementById('screenShareVideo')
 };
+
+// Global variables for screen sharing
+window.currentUserId = null;
 
 // Initialize
 async function init() {
@@ -124,6 +157,13 @@ function setupEventListeners() {
   // Save settings on change
   elements.serverUrl.addEventListener('change', saveSettings);
   elements.userName.addEventListener('change', saveSettings);
+  
+  // New enhanced event listeners
+  elements.changeModeBtn.addEventListener('click', handleChangeMode);
+  elements.uploadFileBtn.addEventListener('click', () => elements.fileInput.click());
+  elements.fileInput.addEventListener('change', handleFileUpload);
+  elements.startScreenShareBtn.addEventListener('click', handleStartScreenShare);
+  elements.stopScreenShareBtn.addEventListener('click', handleStopScreenShare);
 }
 
 // IPC Listeners
@@ -133,7 +173,6 @@ function setupIPCListeners() {
     state.connected = true;
     updateConnectionUI();
     showNotification('Connected to sync server', 'success');
-    // Update NTP status after connection
     setTimeout(updateNTPStatus, 1000);
   });
   
@@ -148,16 +187,51 @@ function setupIPCListeners() {
     state.inChannel = true;
     updateChannelUI(info);
     updateNTPStatus();
+    updateModeButtons();
+  });
+  
+  window.api.sync.onWelcome && window.api.sync.onWelcome((data) => {
+    state.inChannel = true;
+    state.userMode = data.userMode;
+    
+    // Store current user ID globally for screen sharing
+    window.currentUserId = data.userId;
+    
+    // Update UI with enhanced data
+    updateModeUI(data.userMode);
+    updateUsersList(data.users);
+    updateSharedFilesList(data.sharedFiles);
+    updateScreenSharesList(data.screenSharers);
+    
+    elements.channelInfo.style.display = 'block';
+    elements.joinChannelBtn.style.display = 'none';
+    elements.leaveChannelBtn.style.display = 'inline-block';
+    
+    showNotification(`Joined channel as ${getModeDisplayName(data.userMode)}`, 'success');
   });
   
   window.api.sync.onUserJoined((data) => {
-    showNotification(`${data.userName} joined the channel`, 'info');
-    updateUsersList();
+    if (data.user) {
+      state.users.set(data.user.id, data.user);
+      updateUsersList(Array.from(state.users.values()));
+      showNotification(`${data.user.name} joined the channel`, 'info');
+    } else {
+      // Legacy format
+      showNotification(`${data.userName} joined the channel`, 'info');
+    }
+    
+    if (data.screenSharers) {
+      state.screenSharers = new Set(data.screenSharers);
+      updateScreenSharesList(Array.from(state.screenSharers));
+    }
   });
   
   window.api.sync.onUserLeft((data) => {
+    state.users.delete(data.userId);
+    state.screenSharers.delete(data.userId);
+    updateUsersList(Array.from(state.users.values()));
+    updateScreenSharesList(Array.from(state.screenSharers));
     showNotification(`${data.userName} left the channel`, 'info');
-    updateUsersList();
   });
   
   window.api.sync.onControllerChanged((data) => {
@@ -183,6 +257,87 @@ function setupIPCListeners() {
   window.api.onVideoOpened((filename) => {
     state.currentVideo = filename;
     elements.currentVideo.textContent = filename;
+  });
+  
+  // New enhanced event handlers
+  window.api.sync.onModeChanged && window.api.sync.onModeChanged((data) => {
+    updateModeUI(data.newMode);
+    showNotification(`Mode changed to ${getModeDisplayName(data.newMode)}`, 'success');
+  });
+  
+  window.api.sync.onUserModeChanged && window.api.sync.onUserModeChanged((data) => {
+    const user = state.users.get(data.userId);
+    if (user) {
+      user.mode = data.newMode;
+      updateUsersList(Array.from(state.users.values()));
+    }
+    
+    if (data.screenSharers) {
+      state.screenSharers = new Set(data.screenSharers);
+      updateScreenSharesList(Array.from(state.screenSharers));
+    }
+    
+    showNotification(`${data.userName} switched to ${getModeDisplayName(data.newMode)}`, 'info');
+  });
+  
+  // File sharing events
+  window.api.sync.onFileAvailable && window.api.sync.onFileAvailable((data) => {
+    state.sharedFiles.set(data.fileId, data);
+    updateSharedFilesList(Array.from(state.sharedFiles.values()));
+    showNotification(`File available: ${data.fileName}`, 'success');
+  });
+  
+  window.api.sync.onFileUploadProgress && window.api.sync.onFileUploadProgress((data) => {
+    if (data.progress === 100) {
+      elements.uploadProgress.style.display = 'none';
+    } else {
+      elements.uploadProgressBar.style.width = `${data.progress}%`;
+      elements.uploadStatus.textContent = `${data.fileName}: ${data.progress}%`;
+    }
+  });
+  
+  // Screen sharing events
+  window.api.sync.onScreenShareAvailable && window.api.sync.onScreenShareAvailable((data) => {
+    state.screenSharers.add(data.hostId);
+    updateScreenSharesList(Array.from(state.screenSharers));
+    showNotification(`${data.hostName} is sharing their screen`, 'info');
+  });
+  
+  window.api.sync.onScreenShareEnded && window.api.sync.onScreenShareEnded((data) => {
+    state.screenSharers.delete(data.hostId);
+    updateScreenSharesList(Array.from(state.screenSharers));
+    
+    if (state.watchingScreenShare === data.hostId) {
+      state.watchingScreenShare = null;
+      elements.screenShareViewer.style.display = 'none';
+    }
+    
+    showNotification(`${data.hostName} stopped sharing`, 'info');
+  });
+  
+  // WebRTC signaling events for screen sharing
+  window.api.sync.onScreenShareOffer && window.api.sync.onScreenShareOffer((data) => {
+    if (window.screenSharingManager) {
+      window.screenSharingManager.handleScreenShareOffer(data.viewerId, data.offer);
+    }
+  });
+  
+  window.api.sync.onScreenShareAnswer && window.api.sync.onScreenShareAnswer((data) => {
+    if (window.screenSharingManager) {
+      window.screenSharingManager.handleScreenShareAnswer(data.hostId, data.answer);
+    }
+  });
+  
+  window.api.sync.onIceCandidate && window.api.sync.onIceCandidate((data) => {
+    if (window.screenSharingManager) {
+      window.screenSharingManager.handleIceCandidate(data.fromUserId, data.candidate);
+    }
+  });
+  
+  window.api.sync.onScreenShareReceived && window.api.sync.onScreenShareReceived((data) => {
+    elements.screenShareVideo.srcObject = data.stream;
+    elements.screenShareViewer.style.display = 'block';
+    showNotification('Screen share connected', 'success');
   });
 }
 
@@ -236,6 +391,7 @@ async function handleConnect() {
 async function handleJoinChannel() {
   const channelId = elements.channelId.value.trim();
   const userName = elements.userName.value.trim();
+  const mode = elements.userMode.value;
   
   if (!channelId || !userName) {
     showNotification('Please enter channel ID and username', 'error');
@@ -248,7 +404,6 @@ async function handleJoinChannel() {
   }
   
   try {
-    // Show loading state
     elements.joinChannelBtn.disabled = true;
     elements.joinChannelBtn.innerHTML = `
       <svg class="spinner" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -258,24 +413,23 @@ async function handleJoinChannel() {
       Joining...
     `;
     
-    // Disable input fields while joining
     elements.channelId.disabled = true;
     elements.userName.disabled = true;
     
-    await window.api.sync.joinChannel(channelId, userName);
+    // Use enhanced join method if available
+    if (window.api.sync.joinChannelWithMode) {
+      await window.api.sync.joinChannelWithMode(channelId, userName, mode);
+    } else {
+      await window.api.sync.joinChannel(channelId, userName);
+    }
     
-    // Success - update UI
-    elements.channelInfo.style.display = 'block';
-    elements.joinChannelBtn.style.display = 'none';
-    elements.leaveChannelBtn.disabled = false;
-    elements.leaveChannelBtn.style.display = 'inline-block';
-    
-    showNotification('Joined channel successfully', 'success');
+    state.inChannel = true;
+    updateModeUI(mode);
+    updateModeButtons();
     
   } catch (error) {
     showNotification(`Failed to join channel: ${error.message}`, 'error');
     
-    // Reset button and inputs on error
     elements.joinChannelBtn.disabled = false;
     elements.joinChannelBtn.textContent = 'Join Channel';
     elements.channelId.disabled = false;
@@ -565,11 +719,36 @@ function updateVideoControls() {
   }
 }
 
-async function updateUsersList() {
-  const status = await window.api.sync.getStatus();
-  if (status && status.channelInfo) {
-    updateChannelUI(status.channelInfo);
-  }
+async function updateUsersList(users = []) {
+  elements.usersList.innerHTML = '';
+  
+  // Convert users array to Map for easier access
+  state.users.clear();
+  users.forEach(user => {
+    state.users.set(user.id || user.userId, user);
+  });
+  
+  users.forEach(user => {
+    const userItem = document.createElement('div');
+    userItem.className = 'user-item';
+    
+    const modeClass = user.mode || 'localplay';
+    const statusClass = modeClass === 'screenshare_host' ? 'screenshare' :
+                       modeClass === 'screenshare_viewer' ? 'viewer' :
+                       modeClass === 'file_download' ? 'downloading' :
+                       modeClass === 'observer' ? 'observer' : '';
+    
+    userItem.innerHTML = `
+      <div class="user-info">
+        <div class="user-name">${user.name || user.userName}</div>
+        <div class="user-mode">${getModeDisplayName(user.mode || 'localplay')}</div>
+      </div>
+      <div class="user-status">
+        <div class="status-indicator ${statusClass}"></div>
+      </div>
+    `;
+    elements.usersList.appendChild(userItem);
+  });
 }
 
 // Utilities
@@ -731,3 +910,281 @@ window.api.sync.onPlayCommand(handlePlayCommand);
 window.api.sync.onPauseCommand(handlePauseCommand);
 window.api.sync.onSeekCommand(handleSeekCommand);
 window.api.sync.onSyncState(handleSyncState);
+
+// Mode management
+async function handleChangeMode() {
+  const newMode = elements.userMode.value;
+  if (newMode === state.userMode) return;
+  
+  try {
+    elements.changeModeBtn.disabled = true;
+    elements.changeModeBtn.textContent = 'Changing...';
+    
+    // TODO: Call sync client change mode method
+    await window.api.sync.changeMode(newMode);
+    
+    showNotification(`Mode changed to ${getModeDisplayName(newMode)}`, 'success');
+    
+  } catch (error) {
+    showNotification(`Failed to change mode: ${error.message}`, 'error');
+  } finally {
+    elements.changeModeBtn.disabled = false;
+    elements.changeModeBtn.textContent = 'Change Mode';
+  }
+}
+
+function updateModeUI(mode) {
+  state.userMode = mode;
+  elements.userMode.value = mode;
+  elements.currentMode.textContent = getModeDisplayName(mode);
+  
+  // Show/hide relevant sections based on mode
+  const showFileSharing = ['localplay', 'file_download'].includes(mode);
+  const showScreenSharing = ['screenshare_host', 'screenshare_viewer'].includes(mode);
+  
+  elements.fileSharingSection.style.display = showFileSharing ? 'block' : 'none';
+  elements.screenSharingSection.style.display = showScreenSharing ? 'block' : 'none';
+  
+  // Update button states
+  updateModeButtons();
+}
+
+function updateModeButtons() {
+  const inChannel = state.inChannel;
+  const canChange = inChannel && state.connected;
+  
+  elements.userMode.disabled = !inChannel;
+  elements.changeModeBtn.disabled = !canChange;
+  elements.uploadFileBtn.disabled = !canChange || !['localplay'].includes(state.userMode);
+  elements.startScreenShareBtn.disabled = !canChange || state.userMode !== 'screenshare_host';
+  elements.stopScreenShareBtn.disabled = !state.isScreenSharing;
+  
+  // Update help text visibility
+  const helpText = document.querySelector('.mode-section .help-text');
+  if (helpText) {
+    helpText.style.display = inChannel ? 'none' : 'block';
+  }
+}
+
+function getModeDisplayName(mode) {
+  const modeNames = {
+    'localplay': 'Local Video',
+    'screenshare_host': 'Sharing Screen',
+    'screenshare_viewer': 'Watching Screen',
+    'file_download': 'Downloading File',
+    'observer': 'Observer'
+  };
+  return modeNames[mode] || mode;
+}
+
+// File sharing functionality
+async function handleFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  if (!file.type.startsWith('video/')) {
+    showNotification('Please select a video file', 'error');
+    return;
+  }
+  
+  if (file.size > 500 * 1024 * 1024) { // 500MB limit
+    showNotification('File too large. Maximum size is 500MB', 'error');
+    return;
+  }
+  
+  try {
+    elements.uploadProgress.style.display = 'block';
+    elements.uploadProgressBar.style.width = '0%';
+    elements.uploadStatus.textContent = 'Preparing upload...';
+    
+    // TODO: Call sync client upload method
+    const fileId = await window.api.sync.uploadFile(file, (progress) => {
+      elements.uploadProgressBar.style.width = `${progress}%`;
+      elements.uploadStatus.textContent = `Uploading... ${Math.round(progress)}%`;
+    });
+    
+    showNotification(`Upload started: ${file.name}`, 'success');
+    
+  } catch (error) {
+    showNotification(`Upload failed: ${error.message}`, 'error');
+    elements.uploadProgress.style.display = 'none';
+  }
+  
+  // Reset file input
+  elements.fileInput.value = '';
+}
+
+function updateSharedFilesList(files) {
+  elements.filesList.innerHTML = '';
+  
+  files.forEach(file => {
+    const fileItem = document.createElement('div');
+    fileItem.className = 'file-item';
+    fileItem.innerHTML = `
+      <div class="file-info">
+        <div class="file-name">${file.name}</div>
+        <div class="file-details">
+          ${formatFileSize(file.size)} • ${file.type} • 
+          Shared by ${file.uploadedBy}
+        </div>
+      </div>
+      <div class="file-actions">
+        <button class="btn-small btn-download" onclick="downloadFile('${file.id}')">
+          📥 Download
+        </button>
+      </div>
+    `;
+    elements.filesList.appendChild(fileItem);
+  });
+}
+
+async function downloadFile(fileId) {
+  try {
+    showNotification('Starting download...', 'info');
+    await window.api.sync.downloadFile(fileId);
+  } catch (error) {
+    showNotification(`Download failed: ${error.message}`, 'error');
+  }
+}
+
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Screen sharing functionality (updated to use ScreenSharingManager)
+async function handleStartScreenShare() {
+  try {
+    elements.startScreenShareBtn.disabled = true;
+    elements.startScreenShareBtn.textContent = 'Starting...';
+    
+    const quality = elements.screenQuality.value;
+    const frameRate = 30;
+    
+    // Use the screen sharing manager for actual screen capture
+    const result = await window.screenSharingManager.startScreenShare(quality, frameRate);
+    
+    if (result.success) {
+      // Notify server via IPC
+      await window.api.sync.startScreenShare(quality, frameRate);
+      
+      state.isScreenSharing = true;
+      elements.startScreenShareBtn.style.display = 'none';
+      elements.stopScreenShareBtn.style.display = 'inline-block';
+      elements.stopScreenShareBtn.disabled = false;
+      
+      showNotification('Screen sharing started', 'success');
+    }
+    
+  } catch (error) {
+    console.error('Screen share error:', error);
+    showNotification(`Failed to start screen share: ${error.message}`, 'error');
+    elements.startScreenShareBtn.disabled = false;
+    elements.startScreenShareBtn.textContent = '🚀 Start Sharing';
+  }
+}
+
+async function handleStopScreenShare() {
+  try {
+    elements.stopScreenShareBtn.disabled = true;
+    elements.stopScreenShareBtn.textContent = 'Stopping...';
+    
+    // Stop screen sharing locally
+    const result = window.screenSharingManager.stopScreenShare();
+    
+    if (result.success) {
+      // Notify server via IPC
+      await window.api.sync.stopScreenShare();
+      
+      state.isScreenSharing = false;
+      elements.startScreenShareBtn.style.display = 'inline-block';
+      elements.stopScreenShareBtn.style.display = 'none';
+      elements.startScreenShareBtn.disabled = false;
+      
+      showNotification('Screen sharing stopped', 'success');
+    }
+    
+  } catch (error) {
+    console.error('Stop screen share error:', error);
+    showNotification(`Failed to stop screen share: ${error.message}`, 'error');
+  } finally {
+    elements.stopScreenShareBtn.disabled = false;
+    elements.stopScreenShareBtn.textContent = '⏹️ Stop Sharing';
+  }
+}
+
+async function watchScreenShare(hostId) {
+  try {
+    showNotification('Connecting to screen share...', 'info');
+    
+    // Use screen sharing manager for WebRTC connection
+    const result = await window.screenSharingManager.connectToScreenShare(hostId);
+    
+    if (result.success) {
+      state.watchingScreenShare = hostId;
+      updateScreenSharesList(Array.from(state.screenSharers));
+      
+      // Change mode to viewer
+      if (state.userMode !== 'screenshare_viewer') {
+        await window.api.sync.changeMode('screenshare_viewer');
+      }
+      
+      showNotification('Connected to screen share', 'success');
+    }
+    
+  } catch (error) {
+    console.error('Connect to screen share error:', error);
+    showNotification(`Failed to connect to screen share: ${error.message}`, 'error');
+  }
+}
+
+async function stopWatchingScreenShare() {
+  try {
+    // Disconnect locally
+    const result = window.screenSharingManager.disconnectFromScreenShare();
+    
+    if (result.success) {
+      state.watchingScreenShare = null;
+      updateScreenSharesList(Array.from(state.screenSharers));
+      showNotification('Disconnected from screen share', 'info');
+    }
+    
+  } catch (error) {
+    console.error('Disconnect error:', error);
+    showNotification(`Failed to disconnect: ${error.message}`, 'error');
+  }
+}
+
+function updateScreenSharesList(screenSharers) {
+  elements.screensList.innerHTML = '';
+  
+  screenSharers.forEach(hostId => {
+    const user = state.users.get(hostId);
+    if (!user) return;
+    
+    const screenItem = document.createElement('div');
+    screenItem.className = 'screen-item';
+    screenItem.innerHTML = `
+      <div class="screen-info">
+        <div class="screen-host">${user.name}</div>
+        <div class="screen-details">
+          Quality: ${user.screenShareInfo?.quality || 'Medium'} • 
+          ${user.screenShareInfo?.frameRate || 30} FPS
+        </div>
+      </div>
+      <div class="screen-actions">
+        <button class="btn-small btn-watch" onclick="watchScreenShare('${hostId}')">
+          👀 Watch
+        </button>
+        ${state.watchingScreenShare === hostId ? 
+          `<button class="btn-small btn-disconnect" onclick="stopWatchingScreenShare()">
+            🔌 Disconnect
+           </button>` : ''}
+      </div>
+    `;
+    elements.screensList.appendChild(screenItem);
+  });
+}

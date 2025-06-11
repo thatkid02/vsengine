@@ -1,8 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, desktopCapturer } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const VLCController = require('./vlc-controller');
-const SyncClient = require('./sync-client');
+const SyncClient = require('./sync/sync-client');
 
 // Initialize store for settings
 const store = new Store({
@@ -40,7 +40,10 @@ function createWindow() {
       // Enable context menu
       contextIsolation: true,
       // Enable keyboard shortcuts
-      enableBlinkFeatures: 'KeyboardShortcuts'
+      enableBlinkFeatures: 'KeyboardShortcuts',
+      // Enable screen capture permissions
+      webSecurity: false,
+      experimentalFeatures: true
     },
     titleBarStyle: 'hiddenInset',
     icon: path.join(__dirname, 'assets', 'icon.png')
@@ -84,6 +87,15 @@ function createWindow() {
       }
     } catch (error) {
       console.error('Error shutting down VLC:', error);
+    }
+  });
+
+  // Handle desktop capturer access
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    if (permission === 'media') {
+      callback(true);
+    } else {
+      callback(false);
     }
   });
 }
@@ -160,6 +172,70 @@ async function initializeControllers() {
 
   syncClient.on('controllerChanged', (data) => {
     mainWindow.webContents.send('sync:controllerChanged', data);
+  });
+
+  // Enhanced sync event handlers
+  syncClient.on('welcome', (data) => {
+    mainWindow.webContents.send('sync:welcome', data);
+  });
+
+  syncClient.on('modeChanged', (data) => {
+    mainWindow.webContents.send('sync:modeChanged', data);
+  });
+
+  syncClient.on('userModeChanged', (data) => {
+    mainWindow.webContents.send('sync:userModeChanged', data);
+  });
+
+  // File sharing events
+  syncClient.on('fileUploadStarted', (data) => {
+    mainWindow.webContents.send('sync:fileUploadStarted', data);
+  });
+
+  syncClient.on('fileUploadProgress', (data) => {
+    mainWindow.webContents.send('sync:fileUploadProgress', data);
+  });
+
+  syncClient.on('fileAvailable', (data) => {
+    mainWindow.webContents.send('sync:fileAvailable', data);
+  });
+
+  syncClient.on('fileDownloadReady', (data) => {
+    mainWindow.webContents.send('sync:fileDownloadReady', data);
+  });
+
+  // Screen sharing events
+  syncClient.on('screenShareAvailable', (data) => {
+    mainWindow.webContents.send('sync:screenShareAvailable', data);
+  });
+
+  syncClient.on('screenShareEnded', (data) => {
+    mainWindow.webContents.send('sync:screenShareEnded', data);
+  });
+
+  syncClient.on('screenShareReceived', (data) => {
+    mainWindow.webContents.send('sync:screenShareReceived', data);
+  });
+
+  syncClient.on('screenShareStarted', (data) => {
+    mainWindow.webContents.send('sync:screenShareStarted', data);
+  });
+
+  syncClient.on('screenShareStopped', (data) => {
+    mainWindow.webContents.send('sync:screenShareStopped', data);
+  });
+
+  // WebRTC signaling events
+  syncClient.on('screenShareOffer', (data) => {
+    mainWindow.webContents.send('sync:screenShareOffer', data);
+  });
+
+  syncClient.on('screenShareAnswer', (data) => {
+    mainWindow.webContents.send('sync:screenShareAnswer', data);
+  });
+
+  syncClient.on('iceCandidate', (data) => {
+    mainWindow.webContents.send('sync:iceCandidate', data);
   });
 
   // Sync command handlers
@@ -363,9 +439,122 @@ ipcMain.handle('sync:joinChannel', (event, channelId, userName) => {
   syncEnabled = true;
 });
 
+ipcMain.handle('sync:joinChannelWithMode', (event, channelId, userName, mode) => {
+  const userId = store.get('userId') || require('uuid').v4();
+  store.set('userId', userId);
+  syncClient.joinChannel(channelId, userId, userName, mode);
+  syncEnabled = true;
+});
+
 ipcMain.handle('sync:leaveChannel', () => {
   syncClient.leaveChannel();
   syncEnabled = false;
+});
+
+// Enhanced mode management
+ipcMain.handle('sync:changeMode', (event, mode) => {
+  return syncClient.changeMode(mode);
+});
+
+// Desktop capturer handler for screen sharing
+ipcMain.handle('screen:getSources', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window', 'screen'],
+      thumbnailSize: { width: 150, height: 150 }
+    });
+    
+    return sources.map(source => ({
+      id: source.id,
+      name: source.name,
+      thumbnail: source.thumbnail.toDataURL()
+    }));
+  } catch (error) {
+    console.error('Error getting desktop sources:', error);
+    throw new Error(`Failed to get desktop sources: ${error.message}`);
+  }
+});
+
+// File sharing handlers
+ipcMain.handle('sync:uploadFile', async (event, file, onProgress) => {
+  try {
+    return await syncClient.uploadFile(file, onProgress);
+  } catch (error) {
+    throw new Error(`File upload failed: ${error.message}`);
+  }
+});
+
+ipcMain.handle('sync:downloadFile', async (event, fileId) => {
+  try {
+    return await syncClient.downloadFile(fileId);
+  } catch (error) {
+    throw new Error(`File download failed: ${error.message}`);
+  }
+});
+
+// Screen sharing handlers (fixed implementation)
+ipcMain.handle('sync:startScreenShare', async (event, quality, frameRate) => {
+  try {
+    // Forward to sync client for server notification
+    syncClient.send({
+      type: 'screenshare_start',
+      quality: quality || 'medium',
+      frameRate: frameRate || 30
+    });
+    
+    // Return success - actual screen capture happens in renderer
+    return { success: true, quality, frameRate };
+  } catch (error) {
+    console.error('Screen share start error:', error);
+    throw new Error(`Screen share failed: ${error.message}`);
+  }
+});
+
+ipcMain.handle('sync:stopScreenShare', async (event) => {
+  try {
+    // Forward to sync client for server notification
+    syncClient.send({
+      type: 'screenshare_stop',
+      newMode: 'observer'
+    });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Screen share stop error:', error);
+    throw new Error(`Stop screen share failed: ${error.message}`);
+  }
+});
+
+ipcMain.handle('sync:connectToScreenShare', async (event, hostId) => {
+  try {
+    // This will be handled in renderer process with WebRTC
+    console.log('Connecting to screen share from host:', hostId);
+    return { success: true, hostId };
+  } catch (error) {
+    console.error('Connect to screen share error:', error);
+    throw new Error(`Connect to screen share failed: ${error.message}`);
+  }
+});
+
+ipcMain.handle('sync:disconnectFromScreenShare', async (event) => {
+  try {
+    console.log('Disconnecting from screen share');
+    return { success: true };
+  } catch (error) {
+    console.error('Disconnect from screen share error:', error);
+    throw new Error(`Disconnect from screen share failed: ${error.message}`);
+  }
+});
+
+// Send messages through sync client
+ipcMain.handle('sync:sendMessage', (event, message) => {
+  try {
+    syncClient.send(message);
+    return { success: true };
+  } catch (error) {
+    console.error('Send message error:', error);
+    throw new Error(`Failed to send message: ${error.message}`);
+  }
 });
 
 ipcMain.handle('sync:getStatus', () => {

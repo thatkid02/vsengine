@@ -63,6 +63,10 @@
           </div>
           <button id="leaveChannelBtn" class="btn btn-danger">Leave Channel</button>
         </div>
+
+
+
+
       </section>
 
       <!-- Video Control Panel -->
@@ -120,6 +124,70 @@
           <button id="startVLCBtn" class="btn btn-secondary">Start VLC</button>
         </div>
 
+        <!-- User Mode Selection -->
+        <div class="form-section mode-section">
+          <h4>🎭 Participation Mode</h4>
+          <div class="mode-selector">
+            <select id="userMode" disabled>
+              <option value="localplay">🎬 Local Video</option>
+              <option value="screenshare_host">📱 Share My Screen</option>
+              <option value="screenshare_viewer">👀 Watch Shared Screen</option>
+              <option value="observer">👁️ Observer Only</option>
+            </select>
+            <button id="changeModeBtn" disabled>Change Mode</button>
+          </div>
+          <div id="modeStatus" class="info-text">
+            Current mode: <span id="currentMode">Local Video</span>
+          </div>
+          <small class="help-text">⚠️ Join a channel to change your participation mode</small>
+        </div>
+
+        <!-- File Sharing Section -->
+        <div class="form-section" id="fileSharingSection" style="display: none;">
+          <h4>📁 File Sharing</h4>
+          <div class="file-controls">
+            <input type="file" id="fileInput" accept="video/*" style="display: none;">
+            <button id="uploadFileBtn" disabled>📤 Upload Video</button>
+            <div id="uploadProgress" style="display: none;">
+              <div class="progress-bar">
+                <div id="uploadProgressBar" class="progress-fill"></div>
+              </div>
+              <span id="uploadStatus">Uploading...</span>
+            </div>
+          </div>
+          <div id="sharedFilesList" class="shared-files">
+            <h5>Available Files:</h5>
+            <div id="filesList"></div>
+          </div>
+        </div>
+
+        <!-- Screen Sharing Section -->
+        <div class="form-section" id="screenSharingSection" style="display: none;">
+          <h4>📱 Screen Sharing</h4>
+          <div class="screen-controls">
+            <div class="quality-selector">
+              <label for="screenQuality">Quality:</label>
+              <select id="screenQuality">
+                <option value="low">Low (480p)</option>
+                <option value="medium" selected>Medium (720p)</option>
+                <option value="high">High (1080p)</option>
+              </select>
+            </div>
+            <div class="screen-buttons">
+              <button id="startScreenShareBtn" disabled>🚀 Start Sharing</button>
+              <button id="stopScreenShareBtn" disabled style="display: none;">⏹️ Stop Sharing</button>
+            </div>
+          </div>
+          <div id="screenSharesList" class="screen-shares">
+            <h5>Available Screens:</h5>
+            <div id="screensList"></div>
+          </div>
+          <div id="screenShareViewer" style="display: none;">
+            <h5>Watching Screen Share:</h5>
+            <video id="screenShareVideo" controls></video>
+          </div>
+        </div>
+
         <div class="sync-indicator" id="syncIndicator" style="display: none;">
           <div class="sync-status">
             <span class="sync-icon">🔄</span>
@@ -144,5 +212,6 @@
   <div id="notificationContainer" class="notification-container"></div>
 
   <script src="renderer.js"></script>
+  <script src="screen-sharing.js"></script>
 </body>
 </html>

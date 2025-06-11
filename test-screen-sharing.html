@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screen Sharing Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .start-btn {
+            background: #4CAF50;
+            color: white;
+        }
+        .stop-btn {
+            background: #f44336;
+            color: white;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            background: #f0f0f0;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .success {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+        video {
+            width: 100%;
+            max-width: 600px;
+            height: auto;
+            background: #000;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🖥️ Screen Sharing Test</h1>
+    
+    <div class="controls">
+        <h3>Test Screen Capture</h3>
+        <button class="start-btn" onclick="startScreenCapture()">🚀 Start Screen Share</button>
+        <button class="stop-btn" onclick="stopScreenCapture()">⏹️ Stop Screen Share</button>
+    </div>
+    
+    <div id="status" class="status">Ready to test screen sharing...</div>
+    
+    <div id="videoContainer" style="display: none;">
+        <h3>Your Screen:</h3>
+        <video id="localVideo" autoplay muted></video>
+    </div>
+    
+    <script>
+        let localStream = null;
+        
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status';
+            if (type === 'error') {
+                statusDiv.classList.add('error');
+            } else if (type === 'success') {
+                statusDiv.classList.add('success');
+            }
+        }
+        
+        async function startScreenCapture() {
+            try {
+                updateStatus('Requesting screen access...', 'info');
+                
+                // Check if screen sharing is supported
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                    throw new Error('Screen sharing not supported in this browser');
+                }
+                
+                // Request screen capture
+                const constraints = {
+                    video: {
+                        width: 1280,
+                        height: 720,
+                        frameRate: 30,
+                        cursor: 'always'
+                    },
+                    audio: true
+                };
+                
+                localStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+                
+                // Display the stream
+                const videoElement = document.getElementById('localVideo');
+                videoElement.srcObject = localStream;
+                
+                // Show video container
+                document.getElementById('videoContainer').style.display = 'block';
+                
+                // Handle when user stops sharing via browser UI
+                localStream.getVideoTracks()[0].addEventListener('ended', () => {
+                    stopScreenCapture();
+                });
+                
+                updateStatus('✅ Screen sharing started successfully!', 'success');
+                
+                // Log stream details
+                console.log('Screen share stream:', localStream);
+                console.log('Video track settings:', localStream.getVideoTracks()[0].getSettings());
+                
+            } catch (error) {
+                console.error('Screen share error:', error);
+                
+                let message = 'Failed to start screen sharing';
+                if (error.name === 'NotAllowedError') {
+                    message = 'Screen sharing permission denied. Please allow screen access and try again.';
+                } else if (error.name === 'NotFoundError') {
+                    message = 'No screen available for sharing.';
+                } else if (error.name === 'NotSupportedError') {
+                    message = 'Screen sharing is not supported in this environment.';
+                } else {
+                    message = `Error: ${error.message}`;
+                }
+                
+                updateStatus(message, 'error');
+            }
+        }
+        
+        function stopScreenCapture() {
+            try {
+                if (localStream) {
+                    localStream.getTracks().forEach(track => {
+                        track.stop();
+                    });
+                    localStream = null;
+                }
+                
+                // Hide video
+                document.getElementById('videoContainer').style.display = 'none';
+                const videoElement = document.getElementById('localVideo');
+                videoElement.srcObject = null;
+                
+                updateStatus('Screen sharing stopped', 'info');
+                
+            } catch (error) {
+                console.error('Stop error:', error);
+                updateStatus(`Error stopping: ${error.message}`, 'error');
+            }
+        }
+        
+        // Test if APIs are available
+        window.addEventListener('load', () => {
+            if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+                console.log('✅ Screen sharing API available');
+            } else {
+                updateStatus('❌ Screen sharing not supported in this environment', 'error');
+            }
+        });
+    </script>
+</body>
+</html> 

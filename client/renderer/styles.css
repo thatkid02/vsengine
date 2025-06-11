@@ -545,3 +545,56 @@ input[type="text"]:disabled {
   margin-top: 4px;
   font-style: italic;
 }
+
+/* Mode Section in Video Panel */
+.mode-section {
+  margin: 1.5rem 0;
+  padding: 1.5rem;
+  background-color: var(--bg-secondary);
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-color);
+}
+
+.mode-section h4 {
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.mode-selector {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.mode-selector select {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.mode-selector select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: var(--bg-tertiary);
+}
+
+.mode-selector button {
+  white-space: nowrap;
+}
+
+.mode-section .info-text {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+.mode-section .help-text {
+  color: #ff9800;
+  font-weight: 500;
+}
